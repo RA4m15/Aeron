@@ -24,9 +24,19 @@ export interface TelemetryData {
   relativeAltitude?: number;
   groundSpeed?: number;
   heading?: number;
+  roll?: number;
+  pitch?: number;
+  yaw?: number;
+  climbRate?: number;
   batteryVoltage?: number;
   batteryCurrent?: number;
-  batteryPercentage?: number;
+  batteryRemainingRaw?: number | null;
+  batteryPercentage?: number | null;
+  batteryPercentageSource?: 'FC_ESTIMATE' | 'VOLTAGE_ESTIMATE' | 'UNKNOWN';
+  batteryCellCount?: number;
+  batteryCellVoltage?: number | null;
+  batteryRemainingMah?: number | null;
+  batteryDataValid?: boolean;
   satellites?: number;
   gpsFixType?: string;
   hdop?: number;
@@ -34,12 +44,63 @@ export interface TelemetryData {
   armed?: boolean;
   isSimulated?: boolean;
   source?: string;
+  connectionStatus?: string;
+  sensorHealth?: Record<string, unknown>;
   recordedAt?: string;
   receivedAt?: string;
+  attitudeUpdatedAt?: string;
+  positionUpdatedAt?: string;
+  gpsTimestamp?: string;
+  transport?: TransportStatusData;
   location?: {
     type: 'Point';
     coordinates: [number, number]; // [lon, lat]
   };
+}
+
+export interface TransportChannelStats {
+  name: string;
+  endpoint: string;
+  assignedIp?: string | null;
+  discoveryMethod?: string | null;
+  clientIsolationSuspected?: boolean;
+  connected: boolean;
+  heartbeatAlive: boolean;
+  lastHeartbeatAgeMs?: number | null;
+  lastMessageAgeMs?: number | null;
+  messageCount: number;
+  heartbeatCount: number;
+  reconnectCount: number;
+  lastError?: string | null;
+}
+
+export interface TransportStatusData {
+  mode: 'dual' | 'wifi' | 'usb' | string;
+  activeSource: 'WIFI' | 'USB' | 'NONE' | string;
+  primaryPreference: 'WIFI' | 'USB' | string;
+  failoverCount: number;
+  lastFailoverEvent?: {
+    ageSeconds?: number | null;
+    reason?: string | null;
+  } | null;
+  wifi?: TransportChannelStats | null;
+  usb?: TransportChannelStats | null;
+  isAnyAlive: boolean;
+}
+
+export interface AttitudeData {
+  droneId: string;
+  roll: number;
+  pitch: number;
+  yaw: number;
+  climbRate?: number;
+  sourceTimestamp?: number;
+  serverTimestamp?: number;
+  clientReceivedAt?: number;
+  recordedAt: string;
+  bootMs?: number;
+  sequence?: number;
+  ageMs?: number;
 }
 
 export interface DroneData {

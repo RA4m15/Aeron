@@ -5,14 +5,27 @@ from dataclasses import dataclass
 try:
     from dotenv import load_dotenv
     load_dotenv()
+    local_env = os.path.join(os.path.dirname(__file__), "..", ".env")
+    if os.path.exists(local_env):
+        load_dotenv(local_env, override=True)
 except ImportError:
     pass
 
 @dataclass(frozen=True)
 class BridgeConfig:
-    # MAVLink Serial / Network Connection
-    mavlink_connection: str = os.getenv("MAVLINK_CONNECTION", "COM9")
-    mavlink_baud: int = int(os.getenv("MAVLINK_BAUD", "57600"))
+    # Dual-Transport MAVLink Architecture
+    telemetry_transport: str = os.getenv("AERON_TELEMETRY_TRANSPORT", "dual").lower()
+    primary_transport: str = os.getenv("AERON_PRIMARY_TRANSPORT", "wifi").lower()
+    wifi_host: str = os.getenv("AERON_WIFI_HOST", "auto")
+    wifi_port: int = int(os.getenv("AERON_WIFI_PORT", "5760"))
+    wifi_fallback_ip: str = os.getenv("AERON_WIFI_FALLBACK_IP", "192.168.4.1")
+    wifi_udp_port: int = int(os.getenv("AERON_WIFI_UDP_PORT", "37020"))
+    usb_port: str = os.getenv("AERON_USB_PORT", os.getenv("MAVLINK_CONNECTION", "COM8"))
+    usb_baud: int = int(os.getenv("AERON_USB_BAUD", os.getenv("MAVLINK_BAUD", "115200")))
+
+    # Legacy / General Connection Fallbacks
+    mavlink_connection: str = os.getenv("MAVLINK_CONNECTION", "COM8")
+    mavlink_baud: int = int(os.getenv("MAVLINK_BAUD", "115200"))
     mavlink_source: str = os.getenv("MAVLINK_SOURCE", "REAL").upper()
 
     # Airframe Identification

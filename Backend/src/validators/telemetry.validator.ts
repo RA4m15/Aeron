@@ -36,16 +36,30 @@ export const SingleTelemetrySchema = z
     relativeAltitude: finiteNumber().optional().nullable(),
     groundSpeed: finiteNumber(0).optional().nullable(),
     heading: finiteNumber(0, 360).optional().nullable(),
+    roll: finiteNumber(-180, 180).optional().nullable(),
+    pitch: finiteNumber(-90, 90).optional().nullable(),
+    yaw: finiteNumber(0, 360).optional().nullable(),
+    climbRate: finiteNumber().optional().nullable(),
     gpsFixType: z.string().trim().optional().nullable(),
     satellites: z.number().int().min(0).optional().nullable(),
     hdop: finiteNumber(0).optional().nullable(),
     batteryVoltage: finiteNumber(0).optional().nullable(),
     batteryCurrent: finiteNumber().optional().nullable(),
+    batteryRemainingRaw: finiteNumber(-1, 100).optional().nullable(),
     batteryPercentage: finiteNumber(0, 100).optional().nullable(),
+    batteryPercentageSource: z.enum(['FC_ESTIMATE', 'VOLTAGE_ESTIMATE', 'UNKNOWN']).optional().default('UNKNOWN'),
+    batteryCellCount: z.number().int().min(1).max(12).optional().default(3),
+    batteryCellVoltage: finiteNumber(0).optional().nullable(),
+    batteryRemainingMah: finiteNumber(0).optional().nullable(),
+    batteryDataValid: z.boolean().optional().default(false),
     flightMode: z.string().trim().optional().nullable(),
     armed: z.boolean().default(false),
     sensorHealth: z.record(z.unknown()).optional().default({}),
-    connectionStatus: z.string().trim().optional().default('CONNECTED')
+    connectionStatus: z.string().trim().optional().default('CONNECTED'),
+    attitudeUpdatedAt: z.string().optional().nullable(),
+    positionUpdatedAt: z.string().optional().nullable(),
+    gpsTimestamp: z.string().or(z.number()).optional().nullable(),
+    transport: z.record(z.unknown()).optional().nullable()
   })
   .refine(
     (data) => {

@@ -49,9 +49,10 @@ export class StorageService {
 
     if (provider === 'CLOUDINARY') {
       return Boolean(
-        env.CLOUDINARY_CLOUD_NAME &&
+        (env.CLOUDINARY_CLOUD_NAME &&
         env.CLOUDINARY_API_KEY &&
-        env.CLOUDINARY_API_SECRET
+        env.CLOUDINARY_API_SECRET) ||
+        env.CLOUDINARY_URL
       );
     }
 

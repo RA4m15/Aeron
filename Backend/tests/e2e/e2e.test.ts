@@ -19,6 +19,7 @@ import { TelemetryRecord } from '../../src/models/TelemetryRecord.js';
 import { RefreshToken } from '../../src/models/RefreshToken.js';
 import { AuthSession } from '../../src/models/AuthSession.js';
 import { AuditLog } from '../../src/models/AuditLog.js';
+import { storageService } from '../../src/services/storage.service.js';
 import { signAccessToken } from '../../src/utils/jwt.js';
 import { hashPassword } from '../../src/utils/password.js';
 
@@ -839,6 +840,7 @@ describe('AERON — End-to-End System Validation & 25 Critical Integration Scena
 
     const originalEnv = env.isProduction;
     (env as any).isProduction = true;
+    const isConfiguredSpy = vi.spyOn(storageService, 'isConfigured').mockReturnValue(false);
 
     try {
       const res = await request(app)
@@ -854,6 +856,7 @@ describe('AERON — End-to-End System Validation & 25 Critical Integration Scena
       expect(res.body.code).toBe('STORAGE_UNAVAILABLE');
     } finally {
       (env as any).isProduction = originalEnv;
+      isConfiguredSpy.mockRestore();
     }
   });
 });

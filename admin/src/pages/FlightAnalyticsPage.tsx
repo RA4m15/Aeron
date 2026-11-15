@@ -237,9 +237,9 @@ export const FlightAnalyticsPage: React.FC = () => {
             <div className="col-span-1 lg:col-span-2 bg-surface p-5 rounded-xl border border-border space-y-3">
               <div className="flex items-center justify-between border-b border-border/60 pb-3 font-mono text-xs">
                 <span className="font-sans font-bold text-sm text-text-primary uppercase tracking-wider">
-                  4S BATTERY DISCHARGE PROFILE (VOLTS)
+                  3S BATTERY DISCHARGE PROFILE (VOLTS)
                 </span>
-                <span className="text-warning font-bold">CUTOFF THRESHOLD: 14.0V</span>
+                <span className="text-warning font-bold">CUTOFF THRESHOLD: 10.5V (3.5V/CELL)</span>
               </div>
 
               {telemetrySamples.length > 1 ? (
@@ -249,7 +249,7 @@ export const FlightAnalyticsPage: React.FC = () => {
                       fill="none"
                       stroke="#DDB66A"
                       strokeWidth="2.5"
-                      points={createSvgPoints(voltages, 1000, 160, 13.0, 16.8)}
+                      points={createSvgPoints(voltages, 1000, 160, 9.5, 12.6)}
                     />
                   </svg>
                 </div>

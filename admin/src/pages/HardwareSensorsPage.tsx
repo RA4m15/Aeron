@@ -2,13 +2,116 @@ import React, { useEffect, useState } from 'react';
 import { fetchDroneHardware } from '../services/api';
 import { useHardware } from '../context/HardwareContext';
 import { HardwareDeviceData } from '../types';
+import { resolveBatteryState } from '../config/drone';
+
+const VERIFIED_FALLBACK_DEVICES: HardwareDeviceData[] = [
+  {
+    deviceId: 'HW-FC-01',
+    droneId: 'AERON-HEX-01',
+    deviceType: 'FLIGHT_CONTROLLER',
+    manufacturer: 'Holybro / Radiolink',
+    model: 'Pixhawk 2.4.8 (STM32F427)',
+    serialNumber: 'PX4-248-STM32F427-01',
+    installationStatus: 'INSTALLED',
+    connectionStatus: 'CONNECTED',
+    metadata: {
+      firmware: 'ArduCopter v4.5.1',
+      ports: {
+        TELEM2: { baud: 57600, protocol: 'MAVLink 2.0', target: 'ESP32 DevKit V1 (GPIO16/17)', role: 'Primary Active Telemetry' },
+        TELEM1: { baud: 57600, protocol: 'MAVLink', status: 'UNATTACHED' },
+        GPS: { baud: 38400, protocol: 'UBX/NMEA', target: 'U-Blox NEO-M8N' },
+        POWER: { type: 'Analog ADC', voltage_pin: 2, current_pin: 3, target: 'Generic GM V1.0 Power Module' }
+      }
+    }
+  },
+  {
+    deviceId: 'HW-BRIDGE-01',
+    droneId: 'AERON-HEX-01',
+    deviceType: 'OTHER',
+    manufacturer: 'Espressif Systems',
+    model: 'ESP32 DevKit V1 (Dual-Transport Bridge)',
+    serialNumber: 'ESP32-WROOM-32-DUAL',
+    installationStatus: 'INSTALLED',
+    connectionStatus: 'CONNECTED',
+    metadata: {
+      transports: {
+        wifiStation: { mode: 'Station Mode (STA)', connection: 'Mobile Hotspot', port: 5760, protocol: 'TCP Stream (Primary Active)' },
+        usbSerial: { port: 'COM8', baud: 115200, role: 'Secondary Fallback / Diagnostic Monitor' }
+      },
+      uart2: { rxPin: 'GPIO16', txPin: 'GPIO17', baud: 57600, connectedTo: 'Pixhawk TELEM2' },
+      path: 'Pixhawk TELEM2 (57600) -> ESP32 UART2 -> Dual Stream (Wi-Fi 5760 TCP Primary + USB COM8 115200 Fallback)'
+    }
+  },
+  {
+    deviceId: 'HW-GPS-01',
+    droneId: 'AERON-HEX-01',
+    deviceType: 'GPS',
+    manufacturer: 'U-Blox',
+    model: 'U-Blox NEO-M8N + HMC5883L Compass',
+    serialNumber: 'UBX-M8N-7730147',
+    installationStatus: 'INSTALLED',
+    connectionStatus: 'CONNECTED',
+    metadata: {
+      baud: 38400,
+      constellations: ['GPS', 'GLONASS', 'SBAS'],
+      i2cCompass: 'HMC5883L / IST8310',
+      bus: 'I2C Internal/External',
+      fixMode: 'Standard 3D Lock (DGPS/RTK not equipped)'
+    }
+  },
+  {
+    deviceId: 'HW-PWR-01',
+    droneId: 'AERON-HEX-01',
+    deviceType: 'POWER_MODULE',
+    manufacturer: 'Generic / GM V1.0',
+    model: 'Generic GM V1.0 Power Module (Analog ADC)',
+    serialNumber: 'PM-3S-ADC-01',
+    installationStatus: 'INSTALLED',
+    connectionStatus: 'CONNECTED',
+    metadata: {
+      chemistry: 'LiPo',
+      cellCount: 3,
+      nominalVoltage: 11.1,
+      maxVoltage: 12.6,
+      warningVoltage: 10.5,
+      criticalVoltage: 9.9,
+      calibration: 'VOLTAGE_ONLY',
+      note: 'Current sensor uncalibrated / unmeasured on bench. Pack voltage reading nominal; remaining mAh requires hardware calibration.'
+    }
+  },
+  {
+    deviceId: 'HW-RGF-01',
+    droneId: 'AERON-HEX-01',
+    deviceType: 'OTHER',
+    manufacturer: 'N/A',
+    model: 'Downlink Distance Lidar/Sonar (AGL)',
+    serialNumber: 'NONE',
+    installationStatus: 'NOT_INSTALLED',
+    connectionStatus: 'DISCONNECTED',
+    metadata: {
+      status: 'NOT_INSTALLED',
+      note: 'No downward rangefinder installed. Direct AGL unavailable; relative altitude is derived from barometric pressure reference.'
+    }
+  }
+];
 
 export const HardwareSensorsPage: React.FC = () => {
-  const { isOnline, hardwareStatusLabel, latestTelemetry } = useHardware();
-  const [devices, setDevices] = useState<HardwareDeviceData[]>([]);
+  const { isOnline, hardwareStatusLabel, latestTelemetry, transport } = useHardware();
+  const [devices, setDevices] = useState<HardwareDeviceData[]>(VERIFIED_FALLBACK_DEVICES);
   const [loading, setLoading] = useState<boolean>(true);
   const [calibrationNotice, setCalibrationNotice] = useState<string | null>(null);
-  const [selectedDevice, setSelectedDevice] = useState<HardwareDeviceData | null>(null);
+  const [selectedDevice, setSelectedDevice] = useState<HardwareDeviceData | null>(VERIFIED_FALLBACK_DEVICES[0]);
+  const batt = resolveBatteryState(latestTelemetry, isOnline);
+
+  const sh = (latestTelemetry?.sensorHealth || {}) as Record<string, any>;
+  const imuPresent = isOnline ? (sh.imuPresent ?? (sh.imu !== undefined)) : false;
+  const imuHealthy = isOnline ? !!sh.imu : false;
+  const baroPresent = isOnline ? (sh.barometerPresent ?? (sh.barometer !== undefined)) : false;
+  const baroHealthy = isOnline ? !!sh.barometer : false;
+  const compassPresent = isOnline ? (sh.compassPresent ?? (sh.compass !== undefined)) : false;
+  const compassHealthy = isOnline ? !!sh.compass : false;
+  const gpsPresent = isOnline ? (sh.gpsPresent ?? (sh.gps !== undefined)) : false;
+  const gpsHealthy = isOnline ? (!!sh.gps && (latestTelemetry?.satellites ?? 0) >= 4) : false;
 
   useEffect(() => {
     let isMounted = true;
@@ -16,11 +119,20 @@ export const HardwareSensorsPage: React.FC = () => {
       try {
         const res = await fetchDroneHardware('AERON-HEX-01');
         if (isMounted) {
-          setDevices(res.devices);
-          if (res.devices.length > 0) setSelectedDevice(res.devices[0]);
+          if (res?.devices && res.devices.length > 0) {
+            setDevices(res.devices);
+            setSelectedDevice(res.devices[0]);
+          } else {
+            setDevices(VERIFIED_FALLBACK_DEVICES);
+            setSelectedDevice(VERIFIED_FALLBACK_DEVICES[0]);
+          }
         }
       } catch (err) {
         console.warn('[HardwareSensors] Failed to load hardware devices:', err);
+        if (isMounted) {
+          setDevices(VERIFIED_FALLBACK_DEVICES);
+          setSelectedDevice(VERIFIED_FALLBACK_DEVICES[0]);
+        }
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -144,61 +256,127 @@ export const HardwareSensorsPage: React.FC = () => {
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+            {/* 1. TELEM 2 / SERIAL2 (Verified Connected Hardware Path) */}
             <div className="bg-surface-elevated p-3.5 rounded-lg border border-border space-y-1.5">
               <div className="flex justify-between items-center">
-                <span className="text-text-primary font-bold">TELEM 1 (UART)</span>
-                <span className="text-accent-primary font-mono">57600 baud</span>
+                <span className="text-text-primary font-bold">TELEM 2 / SERIAL2</span>
+                <span className="text-accent-primary font-mono font-bold">57600 baud</span>
               </div>
-              <p className="text-text-muted text-[11px]">MAVLink 2.0 Telemetry Radio / USB Ground Link</p>
-              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${
-                isOnline
-                  ? 'bg-success/15 text-success border-success/30'
-                  : 'bg-surface-muted text-text-muted border-border'
-              }`}>
-                {isOnline ? 'Active stream' : 'Standby (Pre-flight)'}
-              </span>
+              <p className="text-text-muted text-[11px]">MAVLink 2.0 → ESP32 UART (GPIO16 RX2 / GPIO17 TX2)</p>
+              <div className="flex items-center justify-between pt-1">
+                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${
+                  isOnline
+                    ? 'bg-success/15 text-success border-success/30'
+                    : 'bg-surface-muted text-text-muted border-border'
+                }`}>
+                  {isOnline ? 'Connected (Verified)' : 'Standby (Pre-flight)'}
+                </span>
+                <span className="text-[10px] font-mono text-text-muted">TELEM2 → ESP32</span>
+              </div>
             </div>
 
+            {/* 2. ESP32 DevKit V1 Dual-Transport Bridge */}
             <div className="bg-surface-elevated p-3.5 rounded-lg border border-border space-y-1.5">
               <div className="flex justify-between items-center">
-                <span className="text-text-primary font-bold">TELEM 2 (UART)</span>
-                <span className="text-text-muted font-mono">921600 baud</span>
+                <span className="text-text-primary font-bold">ESP32 Dual Bridge</span>
+                <span className="text-accent-primary font-mono font-bold">
+                  {transport?.activeSource ? `${transport.activeSource} ACTIVE` : 'DUAL READY'}
+                </span>
               </div>
-              <p className="text-text-muted text-[11px]">Companion Computer Link (RPi / Jetson)</p>
-              <span className="inline-block px-2 py-0.5 rounded bg-surface-muted text-text-muted text-[10px] border border-border">
-                Standby / Unattached
-              </span>
+              <p className="text-text-muted text-[11px]">
+                Path A: Wi-Fi Hotspot (TCP 5760) • Path B: USB (COM8 @ 115200)
+              </p>
+              <div className="flex items-center justify-between pt-1">
+                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${
+                  isOnline
+                    ? 'bg-success/15 text-success border-success/30'
+                    : 'bg-surface-muted text-text-muted border-border'
+                }`}>
+                  {isOnline
+                    ? (transport?.activeSource === 'WIFI' ? 'Wi-Fi Primary (5760)' : 'USB Fallback (COM8)')
+                    : 'Standby / Offline'}
+                </span>
+                <span className="text-[10px] font-mono text-text-muted">
+                  Failovers: {transport?.failoverCount ?? 0}
+                </span>
+              </div>
             </div>
 
+            {/* 3. TELEM 1 / SERIAL1 (Unattached) */}
+            <div className="bg-surface-elevated p-3.5 rounded-lg border border-border space-y-1.5 opacity-80">
+              <div className="flex justify-between items-center">
+                <span className="text-text-primary font-bold">TELEM 1 / SERIAL1</span>
+                <span className="text-text-muted font-mono">57600 baud</span>
+              </div>
+              <p className="text-text-muted text-[11px]">Primary Telemetry UART (No transceiver attached)</p>
+              <div className="flex items-center justify-between pt-1">
+                <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-surface-muted text-text-muted border border-border">
+                  UNKNOWN / NOT VERIFIED
+                </span>
+                <span className="text-[10px] font-mono text-text-muted">Unattached</span>
+              </div>
+            </div>
+
+            {/* 4. GPS & I2C Bus */}
             <div className="bg-surface-elevated p-3.5 rounded-lg border border-border space-y-1.5">
               <div className="flex justify-between items-center">
                 <span className="text-text-primary font-bold">GPS & I2C Bus</span>
-                <span className="text-accent-primary font-mono">38400 baud</span>
+                <span className="text-accent-primary font-mono font-bold">38400 baud</span>
               </div>
               <p className="text-text-muted text-[11px]">U-Blox NEO-M8N GNSS + External HMC5883L Compass</p>
-              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${
-                isOnline
-                  ? 'bg-success/15 text-success border-success/30'
-                  : 'bg-surface-muted text-text-muted border-border'
-              }`}>
-                {isOnline ? 'Bus locked' : 'Standby (Pre-flight)'}
-              </span>
+              <div className="flex items-center justify-between pt-1">
+                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${
+                  isOnline
+                    ? 'bg-success/15 text-success border-success/30'
+                    : 'bg-surface-muted text-text-muted border-border'
+                }`}>
+                  {isOnline ? 'Bus Locked (3D Fix)' : 'Standby (Pre-flight)'}
+                </span>
+                <span className="text-[10px] font-mono text-text-muted">SERIAL3 + I2C</span>
+              </div>
             </div>
 
-            <div className="bg-surface-elevated p-3.5 rounded-lg border border-border space-y-1.5">
+            {/* 5. Power Sensor (3S LiPo Power Module) */}
+            <div className="bg-surface-elevated p-3.5 rounded-lg border border-border space-y-1.5 sm:col-span-2 lg:col-span-2">
               <div className="flex justify-between items-center">
-                <span className="text-text-primary font-bold">Power Sensor</span>
-                <span className="text-accent-primary font-mono">Analog ADC</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-text-primary font-bold">Power Sensor (Analog ADC)</span>
+                  <span className="text-[10px] font-mono text-accent-primary font-bold">3S LiPo (11.1V Nom / 12.6V Max)</span>
+                </div>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${batt.sourceBadgeClass}`}>
+                  {batt.sourceLabel}
+                </span>
               </div>
-              <p className="text-text-muted text-[11px]">4S LiPo Hall Sensor (PM02 Power Module)</p>
-              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${
-                isOnline
-                  ? 'bg-success/15 text-success border-success/30'
-                  : 'bg-surface-muted text-text-muted border-border'
-              }`}>
-                {isOnline ? 'Calibrated (PM02)' : 'Standby (Pre-flight)'}
-              </span>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                <p className="text-text-muted">
+                  Voltage:{' '}
+                  <strong className="text-text-primary font-mono">
+                    {isOnline && batt.voltage !== null ? `${batt.voltage.toFixed(2)}V` : '—'}
+                  </strong>
+                  {' • '}
+                  SoC:{' '}
+                  <strong className="text-accent-primary font-mono">
+                    {isOnline && batt.percentage !== null ? `${batt.percentage}%` : 'UNKNOWN'}
+                  </strong>
+                  {' • '}
+                  Cell Avg:{' '}
+                  <strong className="text-accent-primary font-mono">
+                    {isOnline && batt.voltage !== null ? `${(batt.voltage / 3).toFixed(2)}V/cell` : '—'}
+                  </strong>
+                  {' • '}
+                  Remaining:{' '}
+                  <strong className="text-text-secondary font-mono">
+                    {isOnline && batt.remainingMah !== null ? `${batt.remainingMah} mAh` : 'Unavailable'}
+                  </strong>
+                </p>
+                <span className="text-[10px] font-mono text-text-secondary">
+                  Current: {batt.current !== null ? `${batt.current.toFixed(1)}A` : 'N/A (Unmeasured)'}
+                </span>
+              </div>
+              <p className="text-[10px] text-text-muted italic border-t border-border/40 pt-1">
+                3S LiPo non-linear discharge lookup • Approximate estimate for bench monitoring.
+              </p>
             </div>
           </div>
 
@@ -208,34 +386,129 @@ export const HardwareSensorsPage: React.FC = () => {
               Internal Sensor Health & Redundancy Matrix
             </span>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-              <div className="bg-surface-elevated p-3 rounded-lg border border-border">
-                <span className="text-text-muted text-[10px] block">Primary IMU</span>
-                <span className="text-text-primary font-mono font-bold">MPU-6000 (SPI)</span>
-                <span className={`text-[11px] font-bold block mt-1 ${isOnline ? 'text-success' : 'text-text-muted'}`}>
-                  {isOnline ? 'Health OK' : 'Standby (Pre-flight)'}
-                </span>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
+              {/* 1. Primary IMU */}
+              <div className="bg-surface-elevated p-3 rounded-lg border border-border flex flex-col justify-between">
+                <div>
+                  <span className="text-text-muted text-[10px] block">Primary IMU (3D)</span>
+                  <span className="text-text-primary font-mono font-bold text-xs">3D Accel / Gyro</span>
+                  <span className="text-[10px] text-text-muted block mt-0.5">Preset: MPU-6000 (Unverified)</span>
+                </div>
+                <div className="pt-2 border-t border-border/40 mt-2">
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-text-muted">Presence:</span>
+                    <span className="font-semibold">{isOnline ? (imuPresent ? 'PRESENT' : 'NOT DETECTED') : 'NOT VERIFIED'}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-text-muted">Health:</span>
+                    <span className={`font-bold ${isOnline && imuHealthy ? 'text-success' : 'text-text-muted'}`}>
+                      {isOnline ? (imuHealthy ? 'HEALTHY' : 'DEGRADED') : 'STANDBY'}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="bg-surface-elevated p-3 rounded-lg border border-border">
-                <span className="text-text-muted text-[10px] block">Secondary IMU</span>
-                <span className="text-text-primary font-mono font-bold">LSM303D + L3GD20</span>
-                <span className={`text-[11px] font-bold block mt-1 ${isOnline ? 'text-success' : 'text-text-muted'}`}>
-                  {isOnline ? 'Health OK' : 'Standby (Pre-flight)'}
-                </span>
+
+              {/* 2. Secondary IMU */}
+              <div className="bg-surface-elevated p-3 rounded-lg border border-border flex flex-col justify-between">
+                <div>
+                  <span className="text-text-muted text-[10px] block">Auxiliary IMU</span>
+                  <span className="text-text-primary font-mono font-bold text-xs">Backup Gyro / Mag</span>
+                  <span className="text-[10px] text-text-muted block mt-0.5">Preset: LSM303D (Unverified)</span>
+                </div>
+                <div className="pt-2 border-t border-border/40 mt-2">
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-text-muted">Presence:</span>
+                    <span className="font-semibold">{isOnline ? (imuPresent ? 'PRESENT' : 'NOT DETECTED') : 'NOT VERIFIED'}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-text-muted">Health:</span>
+                    <span className={`font-bold ${isOnline && imuHealthy ? 'text-success' : 'text-text-muted'}`}>
+                      {isOnline ? (imuHealthy ? 'HEALTHY' : 'STANDBY') : 'STANDBY'}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="bg-surface-elevated p-3 rounded-lg border border-border">
-                <span className="text-text-muted text-[10px] block">Barometer</span>
-                <span className="text-text-primary font-mono font-bold">MS5611-01BA</span>
-                <span className={`text-[11px] font-mono font-bold block mt-1 ${isOnline ? 'text-accent-primary' : 'text-text-muted'}`}>
-                  {isOnline ? ((latestTelemetry as any)?.pressure ? `${(latestTelemetry as any).pressure.toFixed(1)} hPa` : '1013.2 hPa') : '—'}
-                </span>
+
+              {/* 3. Barometer */}
+              <div className="bg-surface-elevated p-3 rounded-lg border border-border flex flex-col justify-between">
+                <div>
+                  <span className="text-text-muted text-[10px] block">Barometer</span>
+                  <span className="text-text-primary font-mono font-bold text-xs">Absolute Pressure</span>
+                  <span className="text-[10px] text-text-muted block mt-0.5">Preset: MS5611 (Unverified)</span>
+                </div>
+                <div className="pt-2 border-t border-border/40 mt-2">
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-text-muted">Presence:</span>
+                    <span className="font-semibold">{isOnline ? (baroPresent ? 'PRESENT' : 'NOT DETECTED') : 'NOT VERIFIED'}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-text-muted">Health:</span>
+                    <span className={`font-bold ${isOnline && baroHealthy ? 'text-accent-primary' : 'text-text-muted'}`}>
+                      {isOnline ? (baroHealthy ? 'HEALTHY' : 'DEGRADED') : 'STANDBY'}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="bg-surface-elevated p-3 rounded-lg border border-border">
-                <span className="text-text-muted text-[10px] block">Failover CPU</span>
-                <span className="text-text-primary font-mono font-bold">STM32F100 (IO)</span>
-                <span className={`text-[11px] font-bold block mt-1 ${isOnline ? 'text-accent-primary' : 'text-text-muted'}`}>
-                  {isOnline ? 'Interlocked' : 'Standby (Pre-flight)'}
-                </span>
+
+              {/* 4. Compass */}
+              <div className="bg-surface-elevated p-3 rounded-lg border border-border flex flex-col justify-between">
+                <div>
+                  <span className="text-text-muted text-[10px] block">Compass</span>
+                  <span className="text-text-primary font-mono font-bold text-xs">3D Magnetometer</span>
+                  <span className="text-[10px] text-text-muted block mt-0.5">Preset: HMC5883L (Unverified)</span>
+                </div>
+                <div className="pt-2 border-t border-border/40 mt-2">
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-text-muted">Presence:</span>
+                    <span className="font-semibold">{isOnline ? (compassPresent ? 'PRESENT' : 'NOT DETECTED') : 'NOT VERIFIED'}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-text-muted">Health:</span>
+                    <span className={`font-bold ${isOnline && compassHealthy ? 'text-success' : 'text-text-muted'}`}>
+                      {isOnline ? (compassHealthy ? 'HEALTHY' : 'DEGRADED') : 'STANDBY'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 5. GNSS Sensor */}
+              <div className="bg-surface-elevated p-3 rounded-lg border border-border flex flex-col justify-between">
+                <div>
+                  <span className="text-text-muted text-[10px] block">GNSS Sensor</span>
+                  <span className="text-text-primary font-mono font-bold text-xs">Satellite Position</span>
+                  <span className="text-[10px] text-text-muted block mt-0.5">Preset: NEO-M8N (Unverified)</span>
+                </div>
+                <div className="pt-2 border-t border-border/40 mt-2">
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-text-muted">Presence:</span>
+                    <span className="font-semibold">{isOnline ? (gpsPresent ? 'PRESENT' : 'NOT DETECTED') : 'NOT VERIFIED'}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-text-muted">Health:</span>
+                    <span className={`font-bold ${isOnline && gpsHealthy ? 'text-accent-primary' : 'text-text-muted'}`}>
+                      {isOnline ? (gpsHealthy ? `${latestTelemetry?.satellites ?? 0} Sats Lock` : 'SEARCHING') : 'STANDBY'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 6. Rangefinder */}
+              <div className="bg-surface-elevated p-3 rounded-lg border border-border flex flex-col justify-between opacity-80">
+                <div>
+                  <span className="text-text-muted text-[10px] block">Rangefinder (AGL)</span>
+                  <span className="text-text-muted font-mono font-bold text-xs">Downward Lidar</span>
+                  <span className="text-[10px] text-text-muted block mt-0.5">Distance Sensor</span>
+                </div>
+                <div className="pt-2 border-t border-border/40 mt-2">
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-text-muted">Presence:</span>
+                    <span className="font-bold text-danger">NOT INSTALLED</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-text-muted">Health:</span>
+                    <span className="text-text-muted">N/A</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -280,7 +553,7 @@ export const HardwareSensorsPage: React.FC = () => {
               {selectedDevice.metadata && (
                 <div className="pt-2 border-t border-border/60">
                   <span className="text-[10px] text-text-muted block mb-1">Configuration Metadata</span>
-                  <pre className="p-2.5 bg-surface-elevated rounded-lg border border-border text-[10px] text-text-secondary overflow-x-auto">
+                  <pre className="p-2.5 bg-surface-elevated rounded-lg border border-border text-[10px] text-text-secondary overflow-x-auto whitespace-pre-wrap break-all">
                     {JSON.stringify(selectedDevice.metadata, null, 2)}
                   </pre>
                 </div>

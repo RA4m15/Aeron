@@ -84,6 +84,7 @@ class MAVLinkParser:
         raw_relative_alt = getattr(msg, "relative_alt", 0)
         vx = getattr(msg, "vx", 0)
         vy = getattr(msg, "vy", 0)
+        vz = getattr(msg, "vz", 0)
         raw_hdg = getattr(msg, "hdg", 65535)
 
         # Coordinate conversions (degE7 to decimal degrees)
@@ -103,6 +104,9 @@ class MAVLinkParser:
         # Horizontal ground speed: sqrt(vx^2 + vy^2) in cm/s -> m/s
         ground_speed = round(math.sqrt(vx**2 + vy**2) / 100.0, 2)
 
+        # Climb rate: -vz (NED coordinates: vz is cm/s down, so -vz/100 is m/s up)
+        climb_rate = round(-vz / 100.0, 2)
+
         # Heading (cdeg to degrees, 0 to 360)
         heading = None
         if raw_hdg != 65535 and 0 <= raw_hdg <= 36000:
@@ -115,7 +119,26 @@ class MAVLinkParser:
             "altitude": alt,
             "relativeAltitude": relative_alt,
             "groundSpeed": ground_speed,
+            "climbRate": climb_rate,
             "heading": heading
+        }
+
+    @staticmethod
+    def parse_vfr_hud(msg: Any) -> Dict[str, Any]:
+        """Parses VFR_HUD message (climb rate, airspeed, groundspeed, heading, altitude)."""
+        airspeed = round(float(getattr(msg, "airspeed", 0.0)), 2)
+        groundspeed = round(float(getattr(msg, "groundspeed", 0.0)), 2)
+        heading = int(getattr(msg, "heading", 0))
+        alt = round(float(getattr(msg, "alt", 0.0)), 2)
+        climb = round(float(getattr(msg, "climb", 0.0)), 2)
+
+        return {
+            "type": "VFR_HUD",
+            "airspeed": airspeed,
+            "groundSpeed": groundspeed,
+            "heading": heading,
+            "altitude": alt,
+            "climbRate": climb
         }
 
     @staticmethod
@@ -156,25 +179,41 @@ class MAVLinkParser:
 
     @staticmethod
     def parse_sys_status(msg: Any) -> Dict[str, Any]:
-        """Parses SYS_STATUS message."""
+        """
+        Parses SYS_STATUS message.
+        Treats -1, UINT16_MAX (65535), zero voltage, and unavailable fields appropriately.
+        """
         raw_voltage = getattr(msg, "voltage_battery", 65535)
         raw_current = getattr(msg, "current_battery", -1)
         raw_pct = getattr(msg, "battery_remaining", -1)
 
+        # Voltage in mV -> Volts. 65535 or <= 0 indicates invalid/unconnected.
         voltage = round(raw_voltage / 1000.0, 2) if (raw_voltage != 65535 and raw_voltage > 0) else None
-        current = round(raw_current / 100.0, 2) if raw_current >= 0 else None
-        percentage = raw_pct if (0 <= raw_pct <= 100) else None
+
+        # Current in 10mA -> Amps. -1 indicates invalid/unsupported.
+        # If <= 0 or 65535 or -1, sensor is not measuring or unsupported.
+        current = round(raw_current / 100.0, 2) if (raw_current != -1 and raw_current > 0 and raw_current != 65535) else None
+
+        # Battery remaining: 0-100%, -1 indicates unsupported/invalid
+        pct_raw = int(raw_pct) if (raw_pct != -1 and 0 <= raw_pct <= 100) else None
 
         present_sensors = getattr(msg, "onboard_control_sensors_present", 0)
         enabled_sensors = getattr(msg, "onboard_control_sensors_enabled", 0)
         healthy_sensors = getattr(msg, "onboard_control_sensors_health", 0)
 
         sensor_health = {
-            "imu": bool(healthy_sensors & 1),
-            "barometer": bool(healthy_sensors & 4),
-            "compass": bool(healthy_sensors & 8),
+            "imu": bool((healthy_sensors & 1) or (healthy_sensors & 2)),
+            "imuPresent": bool((present_sensors & 1) or (present_sensors & 2)),
+            "barometer": bool(healthy_sensors & 8),
+            "barometerPresent": bool(present_sensors & 8),
+            "compass": bool(healthy_sensors & 4),
+            "compassPresent": bool(present_sensors & 4),
             "gps": bool(healthy_sensors & 32),
-            "motors": bool(healthy_sensors & 256),
+            "gpsPresent": bool(present_sensors & 32),
+            "rangefinder": bool(healthy_sensors & 256),
+            "rangefinderPresent": bool(present_sensors & 256),
+            "motors": bool(healthy_sensors & 32768),
+            "motorsPresent": bool(present_sensors & 32768),
             "presentBitmap": present_sensors,
             "enabledBitmap": enabled_sensors,
             "healthBitmap": healthy_sensors
@@ -184,28 +223,34 @@ class MAVLinkParser:
             "type": "SYS_STATUS",
             "batteryVoltage": voltage,
             "batteryCurrent": current,
-            "batteryPercentage": percentage,
+            "batteryPercentage": pct_raw,
+            "batteryRemainingRaw": pct_raw,
             "sensorHealth": sensor_health
         }
 
     @staticmethod
     def parse_battery_status(msg: Any) -> Dict[str, Any]:
-        """Parses BATTERY_STATUS message if provided."""
+        """
+        Parses BATTERY_STATUS message if provided.
+        Retrieves voltages array, current_battery, and battery_remaining.
+        """
         voltages = getattr(msg, "voltages", [])
-        total_mv = sum(v for v in voltages if v != 65535 and v > 0)
+        valid_cells = [v for v in voltages if v != 65535 and v > 0]
+        total_mv = sum(valid_cells) if valid_cells else 0
         voltage = round(total_mv / 1000.0, 2) if total_mv > 0 else None
 
         raw_current = getattr(msg, "current_battery", -1)
-        current = round(raw_current / 100.0, 2) if raw_current >= 0 else None
+        current = round(raw_current / 100.0, 2) if (raw_current != -1 and raw_current > 0 and raw_current != 65535) else None
 
         raw_pct = getattr(msg, "battery_remaining", -1)
-        percentage = raw_pct if (0 <= raw_pct <= 100) else None
+        pct_raw = int(raw_pct) if (raw_pct != -1 and 0 <= raw_pct <= 100) else None
 
         return {
             "type": "BATTERY_STATUS",
             "batteryVoltage": voltage,
             "batteryCurrent": current,
-            "batteryPercentage": percentage
+            "batteryPercentage": pct_raw,
+            "batteryRemainingRaw": pct_raw
         }
 
     @staticmethod

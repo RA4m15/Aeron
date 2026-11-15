@@ -1,8 +1,10 @@
 import dotenv from 'dotenv';
+import path from 'path';
 import { z } from 'zod';
 
 // Load environment variables from .env file if available
 dotenv.config();
+dotenv.config({ path: path.resolve(process.cwd(), 'Backend/.env') });
 
 /**
  * Safely strips outer wrapping quotes, BOM, assignment prefixes, and trims whitespace.
@@ -114,6 +116,22 @@ if (process.env.MONGODB_URI) {
   process.env.MONGODB_URI = sanitizeEnvString(process.env.MONGODB_URI);
 }
 
+// Parse CLOUDINARY_URL if provided into individual credentials
+if (process.env.CLOUDINARY_URL) {
+  try {
+    const rawUrl = sanitizeEnvString(process.env.CLOUDINARY_URL);
+    const match = rawUrl.match(/^cloudinary:\/\/([^:]+):([^@]+)@(.+)$/);
+    if (match) {
+      if (!process.env.CLOUDINARY_API_KEY) process.env.CLOUDINARY_API_KEY = match[1];
+      if (!process.env.CLOUDINARY_API_SECRET) process.env.CLOUDINARY_API_SECRET = match[2];
+      if (!process.env.CLOUDINARY_CLOUD_NAME) process.env.CLOUDINARY_CLOUD_NAME = match[3];
+      if (!process.env.STORAGE_PROVIDER || process.env.STORAGE_PROVIDER === 'LOCAL') {
+        process.env.STORAGE_PROVIDER = 'CLOUDINARY';
+      }
+    }
+  } catch (_) {}
+}
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -136,6 +154,7 @@ const envSchema = z
     DRONE_BRIDGE_TOKEN: z.string().default('aeron_drone_bridge_secret_token_dev'),
     CAMERA_BRIDGE_TOKEN: z.string().default('aeron_camera_bridge_secret_token_dev'),
     STORAGE_PROVIDER: z.enum(['LOCAL', 'CLOUDINARY', 'S3']).default('LOCAL'),
+    CLOUDINARY_URL: z.string().optional(),
     CLOUDINARY_CLOUD_NAME: z.string().optional(),
     CLOUDINARY_API_KEY: z.string().optional(),
     CLOUDINARY_API_SECRET: z.string().optional(),

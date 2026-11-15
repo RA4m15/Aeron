@@ -3,6 +3,8 @@ import { useHardware } from '../context/HardwareContext';
 import { AircraftSchematic } from '../components/AircraftSchematic';
 import { AdminGamification } from '../components/AdminGamification';
 import { MetricCard } from '../components/MetricCard';
+import { BridgeControllerWidget } from '../components/telemetry/BridgeControllerWidget';
+import { ACTIVE_DRONE_ID, resolveBatteryState } from '../config/drone';
 
 export const DroneOverviewPage: React.FC = () => {
   const {
@@ -12,7 +14,8 @@ export const DroneOverviewPage: React.FC = () => {
     hardwareStatusLabel,
     readiness,
     protocol,
-    loading
+    loading,
+    attitudeAgeMs
   } = useHardware();
 
   const [commandDisabledNotice, setCommandDisabledNotice] = useState<string | null>(null);
@@ -37,13 +40,14 @@ export const DroneOverviewPage: React.FC = () => {
 
   const lat = tel?.latitude;
   const lon = tel?.longitude;
-  const alt = tel?.altitude ?? tel?.relativeAltitude;
+  const aglAlt = tel?.relativeAltitude;
+  const mslAlt = tel?.altitude;
   const speed = tel?.groundSpeed;
   const voltage = tel?.batteryVoltage;
-  const batteryPct = tel?.batteryPercentage;
   const satellites = tel?.satellites ?? 0;
   const isArmed = !!tel?.armed;
   const flightMode = tel?.flightMode || protocol?.mode || 'STANDBY';
+  const batt = resolveBatteryState(tel, isOnline);
 
   return (
     <div className="flex flex-col w-full px-6 py-6 space-y-6 max-w-[1680px] mx-auto">
@@ -91,41 +95,48 @@ export const DroneOverviewPage: React.FC = () => {
           <span>Sys: <strong className="font-mono text-text-primary font-semibold">{protocol?.sysId || '01'}</strong></span>
           <span>Comp: <strong className="font-mono text-text-primary font-semibold">{protocol?.compId || '01'}</strong></span>
           <span className="px-2.5 py-0.5 rounded bg-surface-elevated border border-border text-[11px] font-mono text-text-secondary">
-            Frame: HEX-01
+            Frame: {ACTIVE_DRONE_ID}
           </span>
         </div>
       </div>
+
+      {/* AERON Bridge Controller — Local Python Wi-Fi Telemetry Gateway */}
+      <BridgeControllerWidget />
 
       {/* Primary Flight Instrument KPI Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           label="Groundspeed"
-          value={isOnline && speed !== undefined ? speed.toFixed(1) : '—'}
-          unit={isOnline && speed !== undefined ? 'm/s' : undefined}
+          value={isOnline && typeof speed === 'number' ? speed.toFixed(1) : '—'}
+          unit={isOnline && typeof speed === 'number' ? 'm/s' : undefined}
           icon="speed"
           trend={isOnline ? (speed && speed > 0 ? 'IMU Telemetry Nominal' : 'Stationary') : 'Awaiting telemetry'}
           status={isOnline && speed && speed > 0 ? 'active' : 'normal'}
-          secondaryValue={isOnline && speed !== undefined ? `${(speed * 3.6).toFixed(1)} km/h` : 'Standby'}
+          secondaryValue={isOnline && typeof speed === 'number' ? `${(speed * 3.6).toFixed(1)} km/h` : 'Standby'}
         />
 
         <MetricCard
-          label="Altitude (AGL)"
-          value={isOnline && alt !== undefined ? alt.toFixed(1) : '—'}
-          unit={isOnline && alt !== undefined ? 'meters' : undefined}
+          label="Relative Altitude (Baro)"
+          value={isOnline && aglAlt !== undefined && aglAlt !== null ? aglAlt.toFixed(1) : 'N/A'}
+          unit={isOnline && aglAlt !== undefined && aglAlt !== null ? 'm (Launch Ref)' : undefined}
           icon="height"
-          trend={isOnline ? (alt && alt > 0 ? 'Baro MS5611 Active' : 'Ground Level') : 'Awaiting telemetry'}
-          status={isOnline && alt && alt > 1 ? 'info' : 'normal'}
-          secondaryValue={isOnline ? 'Relative AGL' : 'Standby'}
+          trend={isOnline ? (aglAlt && Math.abs(aglAlt) > 0.3 ? 'Baro MS5611 (EKF Drift)' : 'Stationary at Launch Origin') : 'Awaiting telemetry'}
+          status={isOnline ? 'normal' : 'normal'}
+          secondaryValue={isOnline && mslAlt !== undefined && mslAlt !== null ? `MSL: ${mslAlt.toFixed(1)}m • AGL: Not Equipped` : 'MSL: N/A'}
         />
 
         <MetricCard
-          label="Battery Power"
-          value={isOnline && voltage !== undefined && voltage > 0 ? voltage.toFixed(1) : '—'}
-          unit={isOnline && voltage ? 'volts' : undefined}
+          label={`3S LiPo Battery (${batt.percentage !== null ? `${batt.percentage}%` : 'SoC N/A'})`}
+          value={isOnline && batt.voltage !== null ? batt.voltage.toFixed(2) : '—'}
+          unit={isOnline && batt.voltage !== null ? 'V' : undefined}
           icon="battery_charging_full"
-          trend={isOnline && batteryPct !== undefined ? `${batteryPct}% Capacity Remaining` : '4S LiPo Pack (Standby)'}
-          status={isOnline && voltage && voltage < 14.2 ? 'warning' : 'normal'}
-          secondaryValue={isOnline && tel?.batteryCurrent ? `${tel.batteryCurrent.toFixed(1)} A Draw` : 'Power Standby'}
+          trend={isOnline && batt.percentage !== null ? `${batt.percentage}% • ${batt.sourceLabel}` : (isOnline ? 'Low: 10.5V | Crit: 9.9V' : '3S LiPo Pack (Standby)')}
+          status={isOnline && batt.isCriticalVoltage ? 'danger' : isOnline && batt.isLowVoltage ? 'warning' : 'normal'}
+          secondaryValue={
+            isOnline && batt.voltage !== null
+              ? `Avg: ${batt.cellVoltage ? `${batt.cellVoltage.toFixed(2)}V/cell` : '—'} • Current: ${batt.current !== null ? `${batt.current.toFixed(1)}A` : 'N/A'}`
+              : 'Power Module Standby'
+          }
         />
 
         <MetricCard
@@ -148,6 +159,7 @@ export const DroneOverviewPage: React.FC = () => {
             isOnline={isOnline}
             armed={isArmed}
             flightMode={flightMode}
+            attitudeAgeMs={attitudeAgeMs}
           />
 
           {/* Quick Technical Coordinates Strip */}
@@ -156,7 +168,7 @@ export const DroneOverviewPage: React.FC = () => {
               <span className="material-symbols-outlined text-[18px] text-info">pin_drop</span>
               <span className="text-text-muted">Coordinates:</span>
               <span className="font-mono text-text-primary font-semibold">
-                {isOnline && lat !== undefined && lon !== undefined ? `${lat.toFixed(5)}° N, ${lon.toFixed(5)}° E` : '—'}
+                {isOnline && typeof lat === 'number' && typeof lon === 'number' ? `${lat.toFixed(5)}° N, ${lon.toFixed(5)}° E` : '—'}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -164,7 +176,9 @@ export const DroneOverviewPage: React.FC = () => {
               <span className="font-mono text-text-primary font-semibold">{isOnline && isArmed ? '1,100 µs' : (isOnline ? '1,000 µs' : '—')}</span>
               <span className="text-border">•</span>
               <span className="text-text-muted">Failsafe:</span>
-              <span className="text-success font-semibold">RTL on Disconnect</span>
+              <span className="text-warning font-semibold" title="Pixhawk parameter FS_GCS_ENBL is not queried by telemetry bridge in read-only mode">
+                NOT VERIFIED (FS_GCS_ENBL Unpolled)
+              </span>
             </div>
           </div>
         </div>
@@ -225,11 +239,11 @@ export const DroneOverviewPage: React.FC = () => {
 
               <div className="flex items-center justify-between p-2.5 bg-surface-elevated rounded-lg border border-border/70">
                 <div className="flex items-center gap-2.5">
-                  <span className={`w-2 h-2 rounded-full ${voltage ? 'bg-success' : 'bg-text-muted'}`} />
-                  <span className="text-text-primary font-medium">Power Distribution (PM02)</span>
+                  <span className={`w-2 h-2 rounded-full ${batt.voltage ? 'bg-success' : 'bg-text-muted'}`} />
+                  <span className="text-text-primary font-medium">3S LiPo Power Module</span>
                 </div>
-                <span className={`text-[11px] font-semibold ${voltage ? 'text-success' : 'text-text-muted'}`}>
-                  {isOnline && voltage ? `${voltage.toFixed(1)}V nominal` : 'Standby'}
+                <span className={`text-[11px] font-semibold ${batt.voltage ? 'text-success' : 'text-text-muted'}`}>
+                  {isOnline && batt.voltage ? `${batt.voltage.toFixed(2)}V • ${batt.percentage !== null ? `${batt.percentage}%` : ''} (${batt.sourceLabel})` : 'Standby'}
                 </span>
               </div>
 
@@ -346,20 +360,24 @@ export const DroneOverviewPage: React.FC = () => {
           </div>
           <div>
             <h4 className="font-sans font-bold text-sm text-text-primary">Power Harness</h4>
-            <p className="text-xs font-sans text-text-muted">4S LiPo • PM02 PDB</p>
+            <p className="text-xs font-sans text-text-muted">3S LiPo • Pixhawk Power Module</p>
           </div>
           <div className="space-y-1.5 text-xs font-sans border-t border-border/60 pt-2 text-text-secondary">
             <div className="flex justify-between">
-              <span className="text-text-muted">Voltage:</span>
-              <span className="font-mono text-text-primary font-medium">{isOnline && voltage ? `${voltage.toFixed(1)}V` : '—'}</span>
+              <span className="text-text-muted">Pack Voltage:</span>
+              <span className="font-mono text-text-primary font-medium">{isOnline && voltage ? `${voltage.toFixed(2)}V` : '—'}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-text-muted">Current:</span>
-              <span className="font-mono text-text-primary font-medium">{isOnline && tel?.batteryCurrent ? `${tel.batteryCurrent.toFixed(1)}A` : '—'}</span>
+              <span className="text-text-muted">Cell Avg (3S):</span>
+              <span className="font-mono text-accent-primary font-medium">{isOnline && voltage ? `${(voltage / 3).toFixed(2)}V/cell` : '—'}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-text-muted">Failsafe:</span>
-              <span className="text-text-primary font-medium">14.0V threshold</span>
+              <span className="text-text-muted">Current Draw:</span>
+              <span className="font-mono text-text-primary font-medium">{isOnline && tel?.batteryCurrent !== undefined && tel.batteryCurrent !== null && tel.batteryCurrent >= 0 ? `${tel.batteryCurrent.toFixed(1)}A` : 'Not measured'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-text-muted">Calibration:</span>
+              <span className="text-warning font-medium">UNVERIFIED</span>
             </div>
           </div>
         </div>

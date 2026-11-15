@@ -12,7 +12,7 @@ interface AutopilotParam {
 const DEFAULT_PARAMS: AutopilotParam[] = [
   { name: 'ARMING_CHECK', value: '1', defaultVal: '1', unit: 'bitmask', description: 'Comprehensive pre-arm sensor verification' },
   { name: 'FS_THR_ENABLE', value: '1', defaultVal: '1', unit: 'boolean', description: 'Enable RC link loss throttle failsafe' },
-  { name: 'FS_BATT_VOLT', value: '14.0', defaultVal: '10.5', unit: 'Volts', description: '4S LiPo low voltage RTL threshold' },
+  { name: 'FS_BATT_VOLT', value: '10.5', defaultVal: '10.5', unit: 'Volts', description: '3S LiPo low voltage RTL threshold' },
   { name: 'RTL_ALT', value: '3000', defaultVal: '1500', unit: 'cm', description: 'Return-to-launch cruise altitude (30m)' },
   { name: 'WPNAV_SPEED', value: '500', defaultVal: '500', unit: 'cm/s', description: 'Autonomous mission waypoint velocity (5m/s)' },
   { name: 'MOT_SPIN_ARM', value: '0.12', defaultVal: '0.15', unit: 'ratio', description: 'Minimum armed idle throttle ratio' },
@@ -138,7 +138,7 @@ export const DroneConfigurationPage: React.FC = () => {
         <div className="bg-surface p-4 rounded-xl border border-border space-y-1">
           <span className="text-[10px] text-text-muted uppercase block font-semibold">Flight Endurance</span>
           <span className="text-sm font-bold text-text-primary block">~22 Minutes Cruise</span>
-          <span className="text-text-muted text-[11px] block">Based on 4S 5200mAh LiPo</span>
+          <span className="text-text-muted text-[11px] block">Based on 3S 5200mAh LiPo</span>
           <span className="text-accent-primary text-[11px] block font-semibold">Hover Power: 180W</span>
         </div>
       </div>

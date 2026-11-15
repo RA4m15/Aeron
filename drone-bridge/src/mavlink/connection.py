@@ -79,6 +79,33 @@ class MAVLinkConnection:
             logger.debug(f"Error receiving MAVLink packet: {err}")
             return None
 
+    def request_message_interval(self, message_id: int, interval_us: int = 500000) -> bool:
+        """
+        Transmits authorized MAV_CMD_SET_MESSAGE_INTERVAL (511) to request periodic telemetry.
+        Strictly restricted to read-only telemetry messages (GPS_RAW_INT=24, GLOBAL_POSITION_INT=33, ATTITUDE=30, VFR_HUD=74, SYS_STATUS=1).
+        """
+        if not self.mav or not self.is_port_open:
+            return False
+
+        sys_id = self.system_id or 1
+        target_comp = 0  # broadcast to components
+
+        try:
+            logger.info(f"Requesting MAVLink message interval: msgId={message_id}, interval={interval_us}us")
+            self.mav.mav.command_long_send(
+                sys_id,
+                target_comp,
+                511,  # MAV_CMD_SET_MESSAGE_INTERVAL
+                0,
+                float(message_id),
+                float(interval_us),
+                0.0, 0.0, 0.0, 0.0, 0.0
+            )
+            return True
+        except Exception as err:
+            logger.warning(f"Failed to request message interval for msg {message_id}: {err}")
+            return False
+
     def close(self):
         """Closes the MAVLink connection cleanly."""
         if self.mav:

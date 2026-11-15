@@ -213,12 +213,20 @@ class TestTelemetryAggregator(unittest.TestCase):
             "altitude": 40.0,
             "relativeAltitude": 10.0,
             "groundSpeed": 2.5,
-            "heading": 90.0
+            "heading": 90.0,
+            "climbRate": 0.45
+        })
+        # Update attitude
+        agg.update_from_message({
+            "type": "ATTITUDE",
+            "roll": 3.14,
+            "pitch": -1.57,
+            "yaw": 88.5
         })
         # Update battery
         agg.update_from_message({
             "type": "SYS_STATUS",
-            "batteryVoltage": 15.1,
+            "batteryVoltage": 11.4,
             "batteryCurrent": 4.2,
             "batteryPercentage": 75,
             "sensorHealth": {"imu": True}
@@ -229,8 +237,59 @@ class TestTelemetryAggregator(unittest.TestCase):
         self.assertTrue(snap["armed"])
         self.assertEqual(snap["flightMode"], "LOITER")
         self.assertEqual(snap["latitude"], 12.9716)
-        self.assertEqual(snap["batteryVoltage"], 15.1)
+        self.assertEqual(snap["batteryVoltage"], 11.4)
         self.assertEqual(snap["groundSpeed"], 2.5)
+        self.assertEqual(snap["roll"], 3.14)
+        self.assertEqual(snap["pitch"], -1.57)
+        self.assertEqual(snap["yaw"], 88.5)
+        self.assertEqual(snap["heading"], 88.5) # ATTITUDE yaw is primary orientation
+        self.assertEqual(snap["climbRate"], 0.45)
+        self.assertIsNotNone(snap["attitudeUpdatedAt"])
+        self.assertIsNotNone(snap["positionUpdatedAt"])
+
+    def test_attitude_primary_orientation_precedence(self):
+        agg = TelemetryAggregator(drone_id="AERON-HEX-01", source="REAL")
+
+        # 1. First GLOBAL_POSITION_INT arrives with compass heading 120.0
+        agg.update_from_message({
+            "type": "GLOBAL_POSITION_INT",
+            "latitude": 23.18,
+            "longitude": 77.30,
+            "heading": 120.0
+        })
+        self.assertEqual(agg.heading, 120.0)
+
+        # 2. ATTITUDE arrives with real-time gyro yaw 45.0
+        agg.update_from_message({
+            "type": "ATTITUDE",
+            "roll": 0.5,
+            "pitch": -0.2,
+            "yaw": 45.0
+        })
+        # Yaw must update heading immediately
+        self.assertEqual(agg.heading, 45.0)
+        self.assertEqual(agg.yaw, 45.0)
+
+        # 3. Subsequent GLOBAL_POSITION_INT arrives with 120.0 (e.g. laggy compass)
+        # It must NOT overwrite the authoritative gyro/attitude yaw
+        agg.update_from_message({
+            "type": "GLOBAL_POSITION_INT",
+            "latitude": 23.18,
+            "longitude": 77.30,
+            "heading": 120.0
+        })
+        self.assertEqual(agg.heading, 45.0)
+        self.assertEqual(agg.yaw, 45.0)
+
+        # 4. Fresh ATTITUDE arrives as drone rotates to 60.0 degrees
+        agg.update_from_message({
+            "type": "ATTITUDE",
+            "roll": 0.5,
+            "pitch": -0.2,
+            "yaw": 60.0
+        })
+        self.assertEqual(agg.heading, 60.0)
+        self.assertEqual(agg.yaw, 60.0)
 
 if __name__ == "__main__":
     unittest.main()

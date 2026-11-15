@@ -46,24 +46,60 @@ export const disconnectSocket = (): void => {
 
 export const subscribeToDroneTelemetry = (
   droneId: string,
-  onTelemetry: (data: unknown) => void
+  onTelemetry: (data: any) => void,
+  onAttitude?: (data: any) => void,
+  onTransport?: (data: any) => void
 ): (() => void) => {
   const s = connectSocket();
   const roomName = `drone:telemetry:${droneId}`;
 
-  // Join authorized room
+  // Join authorized drone room and administrative telemetry room
   s.emit('join_room', { room: roomName }, (res: { success: boolean; error?: string }) => {
     if (!res?.success) {
       console.warn(`[Socket.IO] Failed to subscribe to ${roomName}:`, res?.error);
     }
   });
+  s.emit('join_room', { room: 'admin:telemetry' });
 
   s.on(`telemetry:${droneId}`, onTelemetry);
   s.on('telemetry', onTelemetry);
+  s.on('telemetry:stream', onTelemetry);
+
+  if (onAttitude) {
+    s.on('drone:attitude', onAttitude);
+  }
+
+  if (onTransport) {
+    s.on('drone:transport', onTransport);
+  }
 
   return () => {
     s.off(`telemetry:${droneId}`, onTelemetry);
     s.off('telemetry', onTelemetry);
+    s.off('telemetry:stream', onTelemetry);
+    if (onAttitude) {
+      s.off('drone:attitude', onAttitude);
+    }
+    if (onTransport) {
+      s.off('drone:transport', onTransport);
+    }
+  };
+};
+
+export const subscribeToAttitudeStream = (
+  droneId: string,
+  onAttitude: (data: any) => void
+): (() => void) => {
+  const s = connectSocket();
+  const roomName = `drone:telemetry:${droneId}`;
+
+  s.emit('join_room', { room: roomName });
+  s.emit('join_room', { room: 'admin:telemetry' });
+
+  s.on('drone:attitude', onAttitude);
+
+  return () => {
+    s.off('drone:attitude', onAttitude);
   };
 };
 
@@ -75,12 +111,13 @@ export const subscribeToCameraFeed = (
   const s = connectSocket();
   const roomName = `drone:camera:${droneId}`;
 
-  // Join authorized room
+  // Join authorized drone room and administrative telemetry room
   s.emit('join_room', { room: roomName }, (res: { success: boolean; error?: string }) => {
     if (!res?.success) {
       console.warn(`[Socket.IO] Failed to subscribe to ${roomName}:`, res?.error);
     }
   });
+  s.emit('join_room', { room: 'admin:telemetry' });
 
   s.on('drone:camera:frame', onFrame);
   s.on('camera:frame', onFrame);

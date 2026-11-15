@@ -12,7 +12,7 @@ export const DashboardLayout: React.FC = () => {
         <Sidebar />
         <div className="pl-72 flex flex-col min-h-screen w-full">
           <Header />
-          <main className="w-full pt-16 pb-12 bg-background flex-1 overflow-x-hidden">
+          <main className="w-full pt-16 pb-28 bg-background flex-1 overflow-x-hidden">
             <Outlet />
           </main>
           <Footer />

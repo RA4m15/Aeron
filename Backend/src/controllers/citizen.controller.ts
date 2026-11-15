@@ -38,11 +38,22 @@ export const citizenController = {
       // Verify that any passed media assets exist and were uploaded by this citizen
       let validMediaAssetIds: any[] = [];
       if (validated.mediaAssets && validated.mediaAssets.length > 0) {
-        const foundAssets = await MediaAsset.find({
-          _id: { $in: validated.mediaAssets },
-          uploadedBy: citizenId
-        });
-        validMediaAssetIds = foundAssets.map((a) => a._id);
+        const objectIds = validated.mediaAssets
+          .filter((id) => mongoose.Types.ObjectId.isValid(id))
+          .map((id) => new mongoose.Types.ObjectId(id));
+        const stringIds = validated.mediaAssets.filter((id) => !mongoose.Types.ObjectId.isValid(id));
+
+        const orClauses: Record<string, unknown>[] = [];
+        if (objectIds.length > 0) orClauses.push({ _id: { $in: objectIds } });
+        if (stringIds.length > 0) orClauses.push({ mediaId: { $in: stringIds } });
+
+        if (orClauses.length > 0) {
+          const foundAssets = await MediaAsset.find({
+            $or: orClauses,
+            uploadedBy: citizenId
+          });
+          validMediaAssetIds = foundAssets.map((a) => a._id);
+        }
       }
 
       // Generate unique report ID: AER-YYYY-XXXX

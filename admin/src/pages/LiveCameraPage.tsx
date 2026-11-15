@@ -293,11 +293,17 @@ export const LiveCameraPage: React.FC = () => {
             <div className="space-y-2.5">
               <div className="flex justify-between items-center">
                 <span className="text-text-muted">Hardware device:</span>
-                <span className="text-text-primary font-bold font-mono">ESP32-CAM OV2640</span>
+                <span className="text-text-primary font-bold font-mono">ESP32-CAM (OV2640)</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-text-muted">Relay Status:</span>
+                <span className={`font-semibold ${isStreamingActive ? 'text-success' : 'text-text-muted'}`}>
+                  {isStreamingActive ? 'Streaming Active' : 'Standby (Awaiting Stream)'}
+                </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-text-muted">Resolution:</span>
-                <span className="text-text-primary font-mono">{resolution}</span>
+                <span className="text-text-primary font-mono">{latestFrame?.frameBase64 ? resolution : 'Standby (VGA Default)'}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-text-muted">Stream codec:</span>
@@ -308,9 +314,15 @@ export const LiveCameraPage: React.FC = () => {
                 <span className="text-text-primary font-bold font-mono">{fpsDisplay} FPS</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-text-muted">Wi-Fi RSSI:</span>
+                <span className="text-text-muted">Last Frame:</span>
+                <span className="text-text-secondary font-mono">
+                  {latestFrame?.capturedAt ? new Date(latestFrame.capturedAt).toLocaleTimeString() : 'No frames received'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-text-muted">Wi-Fi Link:</span>
                 <span className={`font-mono ${isStreamingActive ? 'text-success font-semibold' : 'text-text-muted'}`}>
-                  {isStreamingActive ? '-64 dBm (Good)' : (isOnline ? 'Standby (Pre-flight)' : '— (Standby)')}
+                  {isStreamingActive ? 'Connected' : (isOnline ? 'Standby (Pre-flight)' : 'Offline')}
                 </span>
               </div>
             </div>

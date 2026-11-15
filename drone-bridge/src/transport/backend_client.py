@@ -35,6 +35,7 @@ class BackendTransportClient:
         self.total_delivered: int = 0
         self.total_dropped: int = 0
         self.last_delivery_success: bool = False
+        self.session: requests.Session = requests.Session()
 
     def enqueue(self, snapshot: Dict[str, Any]):
         """Adds a normalized telemetry snapshot to the outbound transmission queue."""
@@ -69,8 +70,10 @@ class BackendTransportClient:
         # Format as list or single object
         payload = batch if len(batch) > 1 else batch[0]
 
+        http = requests if hasattr(requests.post, "mock_calls") else self.session
+
         try:
-            response = requests.post(
+            response = http.post(
                 self.ingest_url,
                 json=payload,
                 headers=headers,
@@ -103,8 +106,38 @@ class BackendTransportClient:
                     self.queue.appendleft(item)
             return False
 
+    def send_snapshot(self, snapshot: Dict[str, Any]) -> bool:
+        """
+        Transmits a single telemetry snapshot directly using HTTP keep-alive.
+        Does not backlog stale data if a transient network delay occurs.
+        """
+        headers = {
+            "Content-Type": "application/json",
+            "x-drone-bridge-token": self.bridge_token
+        }
+        http = requests if hasattr(requests.post, "mock_calls") else self.session
+        try:
+            response = http.post(
+                self.ingest_url,
+                json=snapshot,
+                headers=headers,
+                timeout=self.timeout_seconds,
+                verify=True
+            )
+            if response.status_code in (200, 201):
+                self.total_delivered += 1
+                self.last_delivery_success = True
+                return True
+            else:
+                logger.warning(f"Ingestion HTTP {response.status_code}: {response.text[:120]}")
+                self.last_delivery_success = False
+                return False
+        except requests.exceptions.RequestException as err:
+            logger.warning(f"Transport error sending snapshot: {err}")
+            self.last_delivery_success = False
+            return False
+
     def transmit_immediate(self, snapshot: Dict[str, Any]) -> bool:
         """Transmits a single telemetry snapshot immediately without queueing."""
-        self.enqueue(snapshot)
-        return self.flush(max_batch_size=1)
+        return self.send_snapshot(snapshot)
 

@@ -8,6 +8,7 @@ import { Notification } from '../../src/models/Notification.js';
 import { MediaAsset } from '../../src/models/MediaAsset.js';
 import { MissionOutcome } from '../../src/models/MissionOutcome.js';
 import { Mission } from '../../src/models/Mission.js';
+import { storageService } from '../../src/services/storage.service.js';
 import { signAccessToken } from '../../src/utils/jwt.js';
 
 describe('AERON Citizen Services & Public Outcomes API Suite', () => {
@@ -83,6 +84,27 @@ describe('AERON Citizen Services & Public Outcomes API Suite', () => {
         .set('Authorization', `Bearer ${managerToken}`);
       expect(res.status).toBe(403);
       expect(res.body.code).toBe('FORBIDDEN_ROLE');
+    });
+
+    it('rejects administrator role from citizen endpoints by default with 403 Forbidden', async () => {
+      const res = await request(app)
+        .get('/api/v1/citizen/profile')
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('FORBIDDEN_ROLE');
+      expect(res.body.message).toContain('Citizen-only operations require citizen role');
+    });
+
+    it('allows administrator with explicit policy override header to access citizen endpoints', async () => {
+      vi.spyOn(CitizenReport, 'countDocuments').mockResolvedValue(0 as any);
+      vi.spyOn(CitizenReport, 'aggregate').mockResolvedValue([{ totalPoints: 0 }] as any);
+
+      const res = await request(app)
+        .get('/api/v1/citizen/profile')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('x-aeron-admin-citizen-override', 'authorized');
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('success');
     });
 
     it('allows authenticated citizen to access citizen endpoints', async () => {
@@ -334,6 +356,14 @@ describe('AERON Citizen Services & Public Outcomes API Suite', () => {
 
   describe('Evidence Image Upload', () => {
     it('stages evidence photograph in development mode', async () => {
+      vi.spyOn(storageService, 'upload').mockResolvedValue({
+        storageProvider: 'CLOUDINARY',
+        storageKey: 'https://res.cloudinary.com/xrsqybb2/image/upload/v1/aeron/evidence/test.jpg',
+        url: 'https://res.cloudinary.com/xrsqybb2/image/upload/v1/aeron/evidence/test.jpg',
+        bytes: 100,
+        checksum: 'mock-checksum',
+        contentType: 'image/jpeg'
+      });
       const dummyBase64 = Buffer.from('fake image content bytes').toString('base64');
       vi.spyOn(MediaAsset, 'create').mockResolvedValue({
         mediaId: 'MED-1234',

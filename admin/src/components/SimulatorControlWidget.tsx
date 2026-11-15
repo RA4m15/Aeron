@@ -22,7 +22,7 @@ export const SimulatorControlWidget: React.FC<SimulatorControlWidgetProps> = ({
     { id: 'STATIONARY_BENCH', label: 'Stationary Bench Calibration' },
     { id: 'GPS_ACQUISITION', label: 'GNSS Satellite Lock Acquisition' },
     { id: 'WAYPOINT_PROGRESSION', label: 'Autonomous Waypoint Sortie (5 WP)' },
-    { id: 'BATTERY_CONSUMPTION', label: '4S LiPo Drain & RTL Failsafe' },
+    { id: 'BATTERY_CONSUMPTION', label: '3S LiPo Drain & RTL Failsafe' },
     { id: 'CONNECTION_LOSS', label: 'Telemetry Link Dropout & Hold' },
     { id: 'STALE_TELEMETRY', label: 'RF Jammer / Stale Buffer' },
     { id: 'RECONNECTION', label: 'Link Reconnect & Resync' }

@@ -15,16 +15,30 @@ export interface ITelemetryRecord {
   relativeAltitude?: number;
   groundSpeed?: number;
   heading?: number;
+  roll?: number;
+  pitch?: number;
+  yaw?: number;
+  climbRate?: number;
   gpsFixType?: string;
   satellites?: number;
   hdop?: number;
   batteryVoltage?: number;
   batteryCurrent?: number;
-  batteryPercentage?: number;
+  batteryRemainingRaw?: number | null;
+  batteryPercentage?: number | null;
+  batteryPercentageSource?: 'FC_ESTIMATE' | 'VOLTAGE_ESTIMATE' | 'UNKNOWN';
+  batteryCellCount?: number;
+  batteryCellVoltage?: number | null;
+  batteryRemainingMah?: number | null;
+  batteryDataValid?: boolean;
   flightMode?: string;
   armed: boolean;
   sensorHealth?: Record<string, unknown>;
   connectionStatus?: string;
+  attitudeUpdatedAt?: string;
+  positionUpdatedAt?: string;
+  gpsTimestamp?: string;
+  transport?: Record<string, unknown>;
   createdAt?: Date;
 }
 
@@ -115,6 +129,24 @@ const TelemetryRecordSchema = new Schema<ITelemetryRecord>(
       min: [0, 'Heading cannot be less than 0 degrees'],
       max: [360, 'Heading cannot exceed 360 degrees']
     },
+    roll: {
+      type: Number,
+      min: [-180, 'Roll cannot be less than -180 degrees'],
+      max: [180, 'Roll cannot exceed 180 degrees']
+    },
+    pitch: {
+      type: Number,
+      min: [-90, 'Pitch cannot be less than -90 degrees'],
+      max: [90, 'Pitch cannot exceed 90 degrees']
+    },
+    yaw: {
+      type: Number,
+      min: [0, 'Yaw cannot be less than 0 degrees'],
+      max: [360, 'Yaw cannot exceed 360 degrees']
+    },
+    climbRate: {
+      type: Number
+    },
     gpsFixType: {
       type: String,
       trim: true
@@ -134,10 +166,32 @@ const TelemetryRecordSchema = new Schema<ITelemetryRecord>(
     batteryCurrent: {
       type: Number
     },
+    batteryRemainingRaw: {
+      type: Number
+    },
     batteryPercentage: {
       type: Number,
       min: [0, 'Battery percentage must be between 0 and 100'],
       max: [100, 'Battery percentage must be between 0 and 100']
+    },
+    batteryPercentageSource: {
+      type: String,
+      enum: ['FC_ESTIMATE', 'VOLTAGE_ESTIMATE', 'UNKNOWN'],
+      default: 'UNKNOWN'
+    },
+    batteryCellCount: {
+      type: Number,
+      default: 3
+    },
+    batteryCellVoltage: {
+      type: Number
+    },
+    batteryRemainingMah: {
+      type: Number
+    },
+    batteryDataValid: {
+      type: Boolean,
+      default: false
     },
     flightMode: {
       type: String,
@@ -156,6 +210,19 @@ const TelemetryRecordSchema = new Schema<ITelemetryRecord>(
       type: String,
       default: 'CONNECTED',
       trim: true
+    },
+    attitudeUpdatedAt: {
+      type: String
+    },
+    positionUpdatedAt: {
+      type: String
+    },
+    gpsTimestamp: {
+      type: String
+    },
+    transport: {
+      type: Schema.Types.Mixed,
+      default: null
     }
   },
   {

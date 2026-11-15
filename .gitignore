@@ -97,3 +97,19 @@ documentation/screenshots/
 **/public/drone_hero.png
 **/public/drone_hero_solid.jpg
 
+# Hardware credentials & local secrets
+wifi_credentials.h
+**/wifi_credentials.h
+.aeron-bridge-token
+**/.aeron-bridge-token
+*.token
+.aeron/
+**/.aeron/
+
+# Temporary verification scripts and scratch
+verify_*.cjs
+scratch/
+
+uploads/
+documentation/
+stitch_quadcopter_control_interface/

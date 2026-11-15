@@ -8,6 +8,7 @@ import { FlightSession } from '../models/FlightSession.js';
 import { TelemetryRecord } from '../models/TelemetryRecord.js';
 import { Drone } from '../models/Drone.js';
 import { CitizenReport } from '../models/CitizenReport.js';
+import { Notification } from '../models/Notification.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { getSocketServer } from '../sockets/socket.server.js';
 import {
@@ -1124,7 +1125,21 @@ export class ManagerController {
         return;
       }
 
-      if (status) report.status = status;
+      if (status) {
+        report.status = status;
+        if (typeof currentStage !== 'number') {
+          const stageMap: Record<string, number> = {
+            SUBMITTED: 1,
+            MUNICIPAL_REVIEW: 2,
+            INSPECTION_SCHEDULED: 3,
+            AERIAL_VERIFIED: 4,
+            PUBLIC_WORKS_ASSIGNED: 5,
+            RESOLVED: 6,
+            REJECTED: 1
+          };
+          if (stageMap[status]) report.currentStage = stageMap[status];
+        }
+      }
       if (typeof currentStage === 'number') report.currentStage = currentStage;
       if (duplicateOf && mongoose.isValidObjectId(duplicateOf)) report.duplicateOf = duplicateOf;
 
@@ -1134,6 +1149,28 @@ export class ManagerController {
       }
 
       await report.save();
+
+      // Dispatch dynamic notification to reporting citizen
+      if (status && status !== 'SUBMITTED') {
+        const statusDisplayNames: Record<string, string> = {
+          MUNICIPAL_REVIEW: 'Under Municipal Review',
+          INSPECTION_SCHEDULED: 'Aerial Inspection Scheduled',
+          AERIAL_VERIFIED: 'Aerial Drone Verified',
+          PUBLIC_WORKS_ASSIGNED: 'Dispatched to Public Works',
+          RESOLVED: 'Civic Issue Resolved',
+          REJECTED: 'Report Rejected'
+        };
+
+        const readableStatus = statusDisplayNames[status] || status;
+        await Notification.create({
+          recipientId: report.citizenId,
+          title: `Report Status: ${readableStatus}`,
+          message: `Your civic report ${report.reportId} status has progressed to ${readableStatus}.`,
+          category: 'CIVIC_UPDATE',
+          relatedEntityType: 'CITIZEN_REPORT',
+          relatedEntityId: report._id
+        });
+      }
 
       safeEmit('citizen:report_updated', report);
 

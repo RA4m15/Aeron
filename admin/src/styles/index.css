@@ -153,3 +153,39 @@
   }
 }
 
+/* AERON Tactical Map Aircraft Marker & Popup Styles */
+.aeron-aircraft-marker {
+  background: transparent !important;
+  border: none !important;
+  overflow: visible !important;
+}
+
+.aeron-leaflet-popup .leaflet-popup-content-wrapper {
+  background: #0D141B !important;
+  color: #F0F4F6 !important;
+  border: 1px solid #334451 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.85) !important;
+  padding: 0 !important;
+}
+
+.aeron-leaflet-popup .leaflet-popup-content {
+  margin: 0 !important;
+  line-height: 1.4 !important;
+}
+
+.aeron-leaflet-popup .leaflet-popup-tip {
+  background: #0D141B !important;
+  border: 1px solid #334451 !important;
+  box-shadow: none !important;
+}
+
+.aeron-leaflet-popup a.leaflet-popup-close-button {
+  color: #84939E !important;
+  padding: 6px !important;
+}
+
+.aeron-leaflet-popup a.leaflet-popup-close-button:hover {
+  color: #BFF42E !important;
+}
+

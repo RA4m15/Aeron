@@ -44,6 +44,8 @@ export const initSocketServer = (httpServer: HttpServer): SocketIOServer => {
       // Extract token from handshake auth or headers
       const rawToken =
         socket.handshake.auth?.token ||
+        socket.handshake.auth?.bridgeToken ||
+        (socket.handshake.headers?.['x-drone-bridge-token'] as string) ||
         (socket.handshake.headers?.authorization?.startsWith('Bearer ')
           ? socket.handshake.headers.authorization.split(' ')[1]
           : null);
@@ -53,7 +55,24 @@ export const initSocketServer = (httpServer: HttpServer): SocketIOServer => {
         return next(new Error('AUTHENTICATION_REQUIRED'));
       }
 
-      // Verify JWT signature and claims
+      // Check for Machine-to-Machine Drone Bridge authentication
+      if (
+        rawToken === env.DRONE_BRIDGE_TOKEN ||
+        socket.handshake.auth?.bridgeToken === env.DRONE_BRIDGE_TOKEN ||
+        socket.handshake.headers?.['x-drone-bridge-token'] === env.DRONE_BRIDGE_TOKEN
+      ) {
+        socket.data.user = {
+          id: 'system:drone-bridge',
+          email: 'drone-bridge@aeron.internal',
+          name: 'AERON Drone Bridge M2M',
+          role: 'admin',
+          accountStatus: 'active'
+        };
+        logger.info(`[Socket.IO] Drone Bridge authenticated via M2M token from ${socket.handshake.address}`);
+        return next();
+      }
+
+      // Verify JWT signature and claims for regular users
       const payload = verifyAccessToken(rawToken);
 
       // Verify authoritative user state from MongoDB
@@ -98,6 +117,61 @@ export const initSocketServer = (httpServer: HttpServer): SocketIOServer => {
     logger.info(
       `[Socket.IO] User authenticated: ${user.email} (${user.role}) connected on socket ${socket.id}`
     );
+
+    // If client is M2M Drone Bridge, register high-frequency attitude handlers
+    const isDroneBridge = user.id === 'system:drone-bridge';
+    if (isDroneBridge) {
+      socket.join('admin:telemetry');
+      socket.join('drone:telemetry:AERON-HEX-01');
+      socket.join('drone:telemetry:AERON-PX4-BENCH01');
+
+      // High-frequency attitude packet from Python Bridge (bypasses MongoDB)
+      socket.on('bridge:attitude', (data: {
+        droneId: string;
+        roll: number;
+        pitch: number;
+        yaw: number;
+        climbRate?: number;
+        sourceTimestamp?: number;
+        bootMs?: number;
+        recordedAt?: string;
+        sequence?: number;
+      }) => {
+        if (!data || !data.droneId) return;
+
+        const broadcastPayload = {
+          droneId: data.droneId,
+          roll: data.roll,
+          pitch: data.pitch,
+          yaw: data.yaw,
+          climbRate: data.climbRate ?? 0,
+          sourceTimestamp: data.sourceTimestamp || Date.now(),
+          serverTimestamp: Date.now(),
+          recordedAt: data.recordedAt || new Date().toISOString(),
+          bootMs: data.bootMs,
+          sequence: data.sequence
+        };
+
+        const room = `drone:telemetry:${data.droneId}`;
+        ioInstance?.to(room).emit('drone:attitude', broadcastPayload);
+        ioInstance?.to('admin:telemetry').emit('drone:attitude', broadcastPayload);
+      });
+
+      // Live telemetry broadcast event from bridge
+      socket.on('bridge:telemetry', (data: any) => {
+        if (!data || !data.droneId) return;
+        const room = `drone:telemetry:${data.droneId}`;
+        const broadcastPayload = {
+          ...data,
+          receivedAt: new Date().toISOString(),
+          serverTimestamp: Date.now()
+        };
+        ioInstance?.to(room).emit(`telemetry:${data.droneId}`, broadcastPayload);
+        ioInstance?.to(room).emit('telemetry', broadcastPayload);
+        ioInstance?.to(room).emit('telemetry:stream', broadcastPayload);
+        ioInstance?.to('admin:telemetry').emit('telemetry', broadcastPayload);
+      });
+    }
 
     // Auto-join personal room
     socket.join(`user:${user.id}`);

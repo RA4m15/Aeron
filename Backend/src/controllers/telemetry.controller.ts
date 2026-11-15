@@ -105,39 +105,32 @@ export class TelemetryController {
         if (item.relativeAltitude !== undefined && item.relativeAltitude !== null) record.relativeAltitude = item.relativeAltitude;
         if (item.groundSpeed !== undefined && item.groundSpeed !== null) record.groundSpeed = item.groundSpeed;
         if (item.heading !== undefined && item.heading !== null) record.heading = item.heading;
+        if (item.roll !== undefined && item.roll !== null) record.roll = item.roll;
+        if (item.pitch !== undefined && item.pitch !== null) record.pitch = item.pitch;
+        if (item.yaw !== undefined && item.yaw !== null) record.yaw = item.yaw;
+        if (item.climbRate !== undefined && item.climbRate !== null) record.climbRate = item.climbRate;
         if (item.gpsFixType !== undefined && item.gpsFixType !== null) record.gpsFixType = item.gpsFixType;
         if (item.satellites !== undefined && item.satellites !== null) record.satellites = item.satellites;
         if (item.hdop !== undefined && item.hdop !== null) record.hdop = item.hdop;
         if (item.batteryVoltage !== undefined && item.batteryVoltage !== null) record.batteryVoltage = item.batteryVoltage;
         if (item.batteryCurrent !== undefined && item.batteryCurrent !== null) record.batteryCurrent = item.batteryCurrent;
+        if (item.batteryRemainingRaw !== undefined && item.batteryRemainingRaw !== null) record.batteryRemainingRaw = item.batteryRemainingRaw;
         if (item.batteryPercentage !== undefined && item.batteryPercentage !== null) record.batteryPercentage = item.batteryPercentage;
+        if (item.batteryPercentageSource) record.batteryPercentageSource = item.batteryPercentageSource;
+        if (item.batteryCellCount !== undefined && item.batteryCellCount !== null) record.batteryCellCount = item.batteryCellCount;
+        if (item.batteryCellVoltage !== undefined && item.batteryCellVoltage !== null) record.batteryCellVoltage = item.batteryCellVoltage;
+        if (item.batteryRemainingMah !== undefined && item.batteryRemainingMah !== null) record.batteryRemainingMah = item.batteryRemainingMah;
+        if (item.batteryDataValid !== undefined) record.batteryDataValid = item.batteryDataValid;
         if (item.flightMode !== undefined && item.flightMode !== null) record.flightMode = item.flightMode;
+        if (item.attitudeUpdatedAt) record.attitudeUpdatedAt = item.attitudeUpdatedAt;
+        if (item.positionUpdatedAt) record.positionUpdatedAt = item.positionUpdatedAt;
+        if (item.gpsTimestamp) record.gpsTimestamp = String(item.gpsTimestamp);
+        if (item.transport !== undefined && item.transport !== null) record.transport = item.transport;
 
         return record;
       });
 
-      // Persist in MongoDB if connected
-      if (mongoose.connection.readyState === 1 && recordsToInsert.length > 0) {
-        await TelemetryRecord.insertMany(recordsToInsert);
-
-        // Update latest telemetry on each distinct drone
-        for (const [droneIdStr, droneObjId] of droneCache.entries()) {
-          const latestItem = items.filter((i) => i.droneId === droneIdStr).pop();
-          if (latestItem) {
-            await Drone.updateOne(
-              { _id: droneObjId },
-              {
-                $set: {
-                  lastTelemetryAt: latestItem.recordedAt,
-                  operationalStatus: latestItem.armed ? 'IN_FLIGHT' : 'READY'
-                }
-              }
-            );
-          }
-        }
-      }
-
-      // Broadcast Socket.IO events to authorized rooms
+      // 1. Immediate Socket.IO broadcast: Delivers real-time attitude & geodetic vector without waiting for MongoDB I/O
       try {
         const io = getSocketServer();
         for (const item of items) {
@@ -185,16 +178,65 @@ export class TelemetryController {
             });
           }
 
+          if (item.roll !== undefined || item.pitch !== undefined || item.yaw !== undefined) {
+            const attPayload = {
+              droneId: item.droneId,
+              roll: item.roll,
+              pitch: item.pitch,
+              yaw: item.yaw,
+              climbRate: item.climbRate,
+              sourceTimestamp: item.recordedAt ? item.recordedAt.getTime() : Date.now(),
+              serverTimestamp: Date.now(),
+              recordedAt: item.recordedAt ? item.recordedAt.toISOString() : new Date().toISOString()
+            };
+            io.to(room).emit('drone:attitude', attPayload);
+            io.to('admin:telemetry').emit('drone:attitude', attPayload);
+          }
+
           io.to(room).emit('drone:health', {
             droneId: item.droneId,
             armed: item.armed,
             flightMode: item.flightMode,
             sensorHealth: item.sensorHealth
           });
+
+          if (item.transport) {
+            io.to(room).emit('drone:transport', {
+              droneId: item.droneId,
+              transport: item.transport,
+              recordedAt: item.recordedAt.toISOString()
+            });
+            io.to('admin:telemetry').emit('drone:transport', {
+              droneId: item.droneId,
+              transport: item.transport,
+              recordedAt: item.recordedAt.toISOString()
+            });
+          }
         }
       } catch (socketErr) {
         // Socket.IO may not be initialized in non-server / test runs
         logger.debug('[TelemetryController] Socket.IO broadcast skipped or uninitialized');
+      }
+
+      // 2. Persist in MongoDB if connected
+      if (mongoose.connection.readyState === 1 && recordsToInsert.length > 0) {
+        await TelemetryRecord.insertMany(recordsToInsert);
+
+        // Update latest telemetry on each distinct drone
+        for (const [droneIdStr, droneObjId] of droneCache.entries()) {
+          const latestItem = items.filter((i) => i.droneId === droneIdStr).pop();
+          if (latestItem) {
+            await Drone.updateOne(
+              { _id: droneObjId },
+              {
+                $set: {
+                  lastTelemetryAt: latestItem.recordedAt,
+                  operationalStatus: latestItem.armed ? 'IN_FLIGHT' : 'READY'
+                }
+              }
+            );
+          }
+        }
       }
 
       res.status(201).json({
