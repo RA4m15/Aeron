@@ -4,6 +4,8 @@ import { CitizenReport } from '../models/CitizenReport.js';
 import { MediaAsset } from '../models/MediaAsset.js';
 import { Notification } from '../models/Notification.js';
 import { User } from '../models/User.js';
+import { Delivery, DeliveryStatus } from '../models/Delivery.js';
+import { TelemetryRecord } from '../models/TelemetryRecord.js';
 import { env } from '../config/env.js';
 import { storageService, StorageUnavailableError } from '../services/storage.service.js';
 import { recordAuthAudit } from '../utils/audit.js';
@@ -13,6 +15,71 @@ import {
   UpdateCitizenProfileSchema,
   EvidenceUploadSchema
 } from '../validators/citizen.validator.js';
+import {
+  buildCitizenSafeTelemetry,
+  ACTIVE_DELIVERY_STATUSES,
+  TELEMETRY_FRESHNESS_THRESHOLD_MS
+} from '../services/delivery-telemetry.service.js';
+
+async function fetchLatestDroneTelemetry(droneRef: any): Promise<any> {
+  if (!droneRef) return null;
+  const droneObjectId = mongoose.isValidObjectId(droneRef)
+    ? droneRef
+    : droneRef._id && mongoose.isValidObjectId(droneRef._id)
+    ? droneRef._id
+    : null;
+
+  if (!droneObjectId) return null;
+
+  return await TelemetryRecord.findOne({ droneId: droneObjectId })
+    .sort({ recordedAt: -1 })
+    .lean();
+}
+
+function formatCitizenDelivery(delivery: any, latestTelemetry: any) {
+  const isFlightActive = ['DISPATCHED', 'IN_TRANSIT', 'APPROACHING'].includes(delivery.status);
+  const droneIdentifier = delivery.assignedDroneId || delivery.assignedDrone?.droneId || null;
+
+  let telemetryPayload = null;
+  if (droneIdentifier) {
+    telemetryPayload = buildCitizenSafeTelemetry(droneIdentifier, latestTelemetry, isFlightActive);
+  }
+
+  return {
+    deliveryId: delivery.deliveryId,
+    packageType: delivery.packageType,
+    priority: delivery.priority,
+    status: delivery.status,
+    isFlying: isFlightActive,
+    pickupLocation: {
+      name: delivery.pickupLocation?.name || 'AERON Medical Logistics Hub',
+      address: delivery.pickupLocation?.address,
+      type: delivery.pickupLocation?.type || 'Point',
+      coordinates: delivery.pickupLocation?.coordinates
+    },
+    destinationLocation: {
+      name: delivery.destinationLocation?.name,
+      address: delivery.destinationLocation?.address,
+      type: delivery.destinationLocation?.type || 'Point',
+      coordinates: delivery.destinationLocation?.coordinates
+    },
+    dispatchedAt: delivery.dispatchedAt || null,
+    deliveredAt: delivery.deliveredAt || null,
+    estimatedDeliveryAt: delivery.estimatedDeliveryAt || null,
+    notes: delivery.notes || null,
+    createdAt: delivery.createdAt,
+    updatedAt: delivery.updatedAt,
+    assignedDrone: delivery.assignedDrone
+      ? {
+          droneId: delivery.assignedDroneId || delivery.assignedDrone.droneId,
+          displayName: delivery.assignedDrone.displayName || 'AERON Medical UAV',
+          model: delivery.assignedDrone.model || 'AERON Medical Drone'
+        }
+      : null,
+    telemetry: telemetryPayload
+  };
+}
+
 
 export const citizenController = {
   /**
@@ -619,6 +686,149 @@ export const citizenController = {
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to process evidence upload';
+      return res.status(500).json({
+        status: 'error',
+        code: 'INTERNAL_ERROR',
+        message: msg
+      });
+    }
+  },
+
+  /**
+   * GET /api/v1/citizen/deliveries/active
+   * Retrieves the authenticated citizen's latest active healthcare delivery and safe drone GPS telemetry.
+   */
+  async getActiveDelivery(req: Request, res: Response) {
+    try {
+      const citizenId = new mongoose.Types.ObjectId(req.user!.id);
+
+      const delivery = await Delivery.findOne({
+        recipientId: citizenId,
+        status: { $in: ACTIVE_DELIVERY_STATUSES }
+      })
+        .sort({ createdAt: -1 })
+        .populate('assignedDrone', 'droneId displayName model operationalStatus');
+
+      if (!delivery) {
+        return res.status(200).json({
+          status: 'success',
+          data: {
+            delivery: null
+          }
+        });
+      }
+
+      let latestTelemetry = null;
+      if (delivery.assignedDrone) {
+        latestTelemetry = await fetchLatestDroneTelemetry(delivery.assignedDrone);
+      }
+
+      const payload = formatCitizenDelivery(delivery, latestTelemetry);
+
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          delivery: payload
+        }
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to retrieve active delivery';
+      return res.status(500).json({
+        status: 'error',
+        code: 'INTERNAL_ERROR',
+        message: msg
+      });
+    }
+  },
+
+  /**
+   * GET /api/v1/citizen/deliveries/:deliveryId
+   * Retrieves a specific healthcare delivery by unique deliveryId or ObjectId for the authenticated citizen.
+   * Strictly prevents IDOR and cross-citizen enumeration.
+   */
+  async getDeliveryById(req: Request, res: Response) {
+    try {
+      const citizenId = new mongoose.Types.ObjectId(req.user!.id);
+      const idParam = String(req.params.deliveryId).trim();
+
+      const query = mongoose.isValidObjectId(idParam)
+        ? { $or: [{ deliveryId: idParam.toUpperCase() }, { _id: idParam }] }
+        : { deliveryId: idParam.toUpperCase() };
+
+      const delivery = await Delivery.findOne(query)
+        .populate('assignedDrone', 'droneId displayName model operationalStatus');
+
+      if (!delivery || delivery.recipientId.toString() !== citizenId.toString()) {
+        return res.status(404).json({
+          status: 'error',
+          code: 'DELIVERY_NOT_FOUND',
+          message: 'Healthcare delivery not found'
+        });
+      }
+
+      let latestTelemetry = null;
+      if (delivery.assignedDrone) {
+        latestTelemetry = await fetchLatestDroneTelemetry(delivery.assignedDrone);
+      }
+
+      const payload = formatCitizenDelivery(delivery, latestTelemetry);
+
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          delivery: payload
+        }
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to retrieve delivery details';
+      return res.status(500).json({
+        status: 'error',
+        code: 'INTERNAL_ERROR',
+        message: msg
+      });
+    }
+  },
+
+  /**
+   * GET /api/v1/citizen/deliveries
+   * Lists healthcare deliveries for the authenticated citizen with pagination.
+   */
+  async getMyDeliveries(req: Request, res: Response) {
+    try {
+      const citizenId = new mongoose.Types.ObjectId(req.user!.id);
+      const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+      const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 15));
+      const skip = (page - 1) * limit;
+
+      const query: Record<string, unknown> = { recipientId: citizenId };
+      if (req.query.status) {
+        query.status = String(req.query.status).toUpperCase();
+      }
+
+      const [deliveries, total] = await Promise.all([
+        Delivery.find(query)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .populate('assignedDrone', 'droneId displayName model operationalStatus')
+          .lean(),
+        Delivery.countDocuments(query)
+      ]);
+
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          deliveries,
+          pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit) || 1
+          }
+        }
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to retrieve citizen deliveries';
       return res.status(500).json({
         status: 'error',
         code: 'INTERNAL_ERROR',

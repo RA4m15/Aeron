@@ -18,4 +18,5 @@ export * from './Notification.js';
 export * from './AuditLog.js';
 export * from './AuthSession.js';
 export * from './RefreshToken.js';
+export * from './Delivery.js';
 

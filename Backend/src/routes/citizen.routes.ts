@@ -21,6 +21,11 @@ citizenRouter.use((req, res, next) => {
   });
 });
 
+// Healthcare Drone Delivery Tracking (Citizen Self-Service)
+citizenRouter.get('/deliveries/active', citizenController.getActiveDelivery);
+citizenRouter.get('/deliveries', citizenController.getMyDeliveries);
+citizenRouter.get('/deliveries/:deliveryId', citizenController.getDeliveryById);
+
 // Civic Reports
 citizenRouter.post('/reports', citizenController.createReport);
 citizenRouter.get('/reports', citizenController.getMyReports);

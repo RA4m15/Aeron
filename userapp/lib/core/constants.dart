@@ -13,6 +13,11 @@ class AppConstants {
 
   static const String prodApiBaseUrl = 'https://aeron.onrender.com/api/v1';
 
+  static String get socketBaseUrl {
+    final clean = apiBaseUrl.replaceAll('/api/v1', '').replaceAll('/api', '');
+    return clean;
+  }
+
   // Canonical Citizen Report Categories matching Mongoose Model
   static const String catRoadStructural = 'ROAD_STRUCTURAL';
   static const String catCrowdSafety = 'CROWD_SAFETY';
