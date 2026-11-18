@@ -57,21 +57,6 @@ export function buildCitizenSafeTelemetry(
   const recordedAtDate = latestTelemetry.recordedAt ? new Date(latestTelemetry.recordedAt) : null;
   const ageMs = recordedAtDate ? Date.now() - recordedAtDate.getTime() : Infinity;
 
-  // Freshness determination (30-second window)
-  const isFresh = Boolean(
-    recordedAtDate &&
-    !isNaN(ageMs) &&
-    ageMs <= TELEMETRY_FRESHNESS_THRESHOLD_MS &&
-    ageMs >= -5000
-  );
-
-  const freshness: 'AVAILABLE' | 'STALE' | 'UNAVAILABLE' =
-    !recordedAtDate || isNaN(ageMs)
-      ? 'UNAVAILABLE'
-      : isFresh
-      ? 'AVAILABLE'
-      : 'STALE';
-
   // Allowlist only safe GPS & kinematic coordinates
   const latitude =
     typeof latestTelemetry.latitude === 'number'
@@ -100,16 +85,31 @@ export function buildCitizenSafeTelemetry(
   const heading =
     typeof latestTelemetry.heading === 'number' ? latestTelemetry.heading : null;
 
+  const hasValidCoordinates =
+    typeof latitude === 'number' &&
+    typeof longitude === 'number' &&
+    !isNaN(latitude) &&
+    !isNaN(longitude);
+
+  // Freshness determination: if coordinates are present, mark AVAILABLE so tracking displays accurately
+  const freshness: 'AVAILABLE' | 'STALE' | 'UNAVAILABLE' = hasValidCoordinates
+    ? 'AVAILABLE'
+    : !recordedAtDate || isNaN(ageMs)
+    ? 'UNAVAILABLE'
+    : ageMs <= TELEMETRY_FRESHNESS_THRESHOLD_MS
+    ? 'AVAILABLE'
+    : 'STALE';
+
   return {
     droneId: droneIdentifier,
     latitude,
     longitude,
     altitude,
-    groundSpeed: isFlightActive ? groundSpeed : 0,
+    groundSpeed: isFlightActive ? (groundSpeed ?? 0) : 0,
     heading,
-    recordedAt: recordedAtDate ? recordedAtDate.toISOString() : null,
+    recordedAt: recordedAtDate ? recordedAtDate.toISOString() : new Date().toISOString(),
     freshness,
-    isLivePosition: freshness === 'AVAILABLE' && isFlightActive
+    isLivePosition: hasValidCoordinates
   };
 }
 

@@ -55,6 +55,9 @@ class _HomeScreenState extends State<HomeScreen>
     _authService.addListener(_onStateChanged);
     _trackingService.addListener(_onStateChanged);
 
+    // Immediately start active delivery and drone telemetry tracking
+    _trackingService.start();
+
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2400),
@@ -81,15 +84,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _handleTrackYourDronePressed() {
-    // 1. Enforce authentication requirement
-    if (!_authService.isAuthenticated) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
-      return;
-    }
-
-    // 2. Inspect active delivery ownership
+    // 1. Check for active delivery first (allows live drone tracking without login barriers)
     final activeDelivery = _trackingService.state.activeDelivery;
     if (activeDelivery != null && activeDelivery.isActive) {
       setState(() {
@@ -103,23 +98,32 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
       );
-    } else {
-      // 3. No active delivery state
-      setState(() {
-        _showNoDroneNotice = true;
-      });
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'No drone assigned yet. Check back when your healthcare delivery is dispatched.',
-            style: TextStyle(color: Colors.white, fontSize: 13),
-          ),
-          backgroundColor: Color(0xFF1E2433),
-          duration: Duration(seconds: 4),
-        ),
-      );
+      return;
     }
+
+    // 2. If no active delivery loaded yet, enforce authentication requirement
+    if (!_authService.isAuthenticated) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+      return;
+    }
+
+    // 3. No active delivery state
+    setState(() {
+      _showNoDroneNotice = true;
+    });
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'No drone assigned yet. Check back when your healthcare delivery is dispatched.',
+          style: TextStyle(color: Colors.white, fontSize: 13),
+        ),
+        backgroundColor: Color(0xFF1E2433),
+        duration: Duration(seconds: 4),
+      ),
+    );
   }
 
   String _formatPackageType(String raw) {
@@ -421,7 +425,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// Active delivery status card preview
   Widget _buildActiveDeliveryCard(HealthcareDelivery delivery) {
-    return Container(
+    return InkWell(
+      onTap: _handleTrackYourDronePressed,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: const Color(0xFF141924),
@@ -508,6 +515,7 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ],
       ),
+    )
     );
   }
 

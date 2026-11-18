@@ -74,7 +74,7 @@ class HealthcareDeliveryTrackingService extends ChangeNotifier {
     await refreshNow();
 
     _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (_isTracking && !_isFetching && !_isDisposed) {
         refreshNow(isSilent: true);
       }
