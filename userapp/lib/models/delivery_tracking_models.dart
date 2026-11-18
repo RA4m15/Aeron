@@ -1,4 +1,7 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
+import 'package:latlong2/latlong.dart';
+import '../core/gis_utils.dart';
 
 /// Controlled delivery lifecycle status matching AERON Backend schema.
 enum DeliveryStatus {
@@ -129,21 +132,170 @@ enum TelemetryFreshness {
 enum SocketConnectionStatus {
   disconnected,
   connecting,
+  reconnecting,
   connected,
   error;
 
   String get displayName {
     switch (this) {
-      case SocketConnectionStatus.disconnected:
-        return 'Offline';
-      case SocketConnectionStatus.connecting:
-        return 'Connecting...';
       case SocketConnectionStatus.connected:
-        return 'Live Stream';
+        return 'Connected';
+      case SocketConnectionStatus.connecting:
+        return 'Connecting';
+      case SocketConnectionStatus.reconnecting:
+        return 'Reconnecting';
+      case SocketConnectionStatus.disconnected:
+        return 'Disconnected';
       case SocketConnectionStatus.error:
         return 'Sync Error';
     }
   }
+
+  Color get badgeColor {
+    switch (this) {
+      case SocketConnectionStatus.connected:
+        return const Color(0xFF1B5E20);
+      case SocketConnectionStatus.connecting:
+        return const Color(0xFF0D47A1);
+      case SocketConnectionStatus.reconnecting:
+        return const Color(0xFFE65100);
+      case SocketConnectionStatus.disconnected:
+        return const Color(0xFF424242);
+      case SocketConnectionStatus.error:
+        return const Color(0xFFB71C1C);
+    }
+  }
+}
+
+/// Client-evaluated real-time GPS freshness state matching aerospace freshness requirements.
+enum GpsFreshnessState {
+  live,
+  delayed,
+  stale,
+  unavailable;
+
+  String get displayName {
+    switch (this) {
+      case GpsFreshnessState.live:
+        return 'LIVE GPS';
+      case GpsFreshnessState.delayed:
+        return 'GPS DELAYED';
+      case GpsFreshnessState.stale:
+        return 'STALE GPS';
+      case GpsFreshnessState.unavailable:
+        return 'GPS UNAVAILABLE';
+    }
+  }
+
+  Color get color {
+    switch (this) {
+      case GpsFreshnessState.live:
+        return const Color(0xFF00C853);
+      case GpsFreshnessState.delayed:
+        return const Color(0xFFFFB300);
+      case GpsFreshnessState.stale:
+        return const Color(0xFFFF5252);
+      case GpsFreshnessState.unavailable:
+        return const Color(0xFF757575);
+    }
+  }
+}
+
+/// ETA status categories matching aviation telemetry reliability states.
+enum EtaStatus {
+  calculable,
+  awaitingDeparture,
+  calculating,
+  arrivingNow,
+  unavailable;
+
+  String get displayName {
+    switch (this) {
+      case EtaStatus.calculable:
+        return 'APPROX. ETA';
+      case EtaStatus.awaitingDeparture:
+        return 'AWAITING DEPARTURE';
+      case EtaStatus.calculating:
+        return 'CALCULATING ETA';
+      case EtaStatus.arrivingNow:
+        return 'ARRIVING';
+      case EtaStatus.unavailable:
+        return 'ETA UNAVAILABLE';
+    }
+  }
+
+  Color get badgeColor {
+    switch (this) {
+      case EtaStatus.calculable:
+      case EtaStatus.arrivingNow:
+        return const Color(0xFF00C853);
+      case EtaStatus.awaitingDeparture:
+        return const Color(0xFF1565C0);
+      case EtaStatus.calculating:
+        return const Color(0xFF00838F);
+      case EtaStatus.unavailable:
+        return const Color(0xFF616161);
+    }
+  }
+}
+
+/// Dynamic ETA evaluation result with approximate remaining time and clock time.
+@immutable
+class DeliveryEtaEstimate {
+  final EtaStatus status;
+  final Duration? remainingTime;
+  final DateTime? expectedArrivalTime;
+  final String displayRemaining;
+  final String? displayArrivalTime;
+  final double? conservativeSpeed;
+
+  const DeliveryEtaEstimate({
+    required this.status,
+    this.remainingTime,
+    this.expectedArrivalTime,
+    required this.displayRemaining,
+    this.displayArrivalTime,
+    this.conservativeSpeed,
+  });
+
+  const DeliveryEtaEstimate.unavailable({String message = 'ETA Unavailable'})
+      : status = EtaStatus.unavailable,
+        remainingTime = null,
+        expectedArrivalTime = null,
+        displayRemaining = message,
+        displayArrivalTime = null,
+        conservativeSpeed = null;
+
+  const DeliveryEtaEstimate.awaitingDeparture()
+      : status = EtaStatus.awaitingDeparture,
+        remainingTime = null,
+        expectedArrivalTime = null,
+        displayRemaining = 'Awaiting Departure',
+        displayArrivalTime = null,
+        conservativeSpeed = 0.0;
+
+  const DeliveryEtaEstimate.calculating()
+      : status = EtaStatus.calculating,
+        remainingTime = null,
+        expectedArrivalTime = null,
+        displayRemaining = 'Calculating ETA...',
+        displayArrivalTime = null,
+        conservativeSpeed = null;
+
+  const DeliveryEtaEstimate.arrivingNow({
+    this.expectedArrivalTime,
+    this.displayArrivalTime,
+  })  : status = EtaStatus.arrivingNow,
+        remainingTime = const Duration(seconds: 45),
+        displayRemaining = '< 1 min',
+        conservativeSpeed = null;
+
+  bool get isApproximate =>
+      status == EtaStatus.calculable || status == EtaStatus.arrivingNow;
+
+  @override
+  String toString() =>
+      'DeliveryEtaEstimate(status: $status, remaining: $displayRemaining, arrival: $displayArrivalTime)';
 }
 
 /// Geographic point with optional name and address.
@@ -373,10 +525,67 @@ class HealthcareDelivery {
   }
 }
 
+/// Single geodetic point in the actual traveled GPS trail.
+@immutable
+class DeliveryTrailPoint {
+  final double latitude;
+  final double longitude;
+  final DateTime timestamp;
+  final double? altitude;
+  final double? heading;
+
+  const DeliveryTrailPoint({
+    required this.latitude,
+    required this.longitude,
+    required this.timestamp,
+    this.altitude,
+    this.heading,
+  });
+
+  /// Converts this trail point to LatLng for flutter_map / Leaflet polylines.
+  LatLng toLatLng() => LatLng(latitude, longitude);
+
+  /// Helper to test if this point should be appended after [lastPoint].
+  bool shouldAppendAfter(
+    DeliveryTrailPoint? lastPoint, {
+    double minDistanceMeters = 2.0,
+    int minIntervalMs = 500,
+  }) {
+    return GisUtils.shouldAppendTrailPoint(
+      lastLat: lastPoint?.latitude,
+      lastLon: lastPoint?.longitude,
+      lastTimestamp: lastPoint?.timestamp,
+      newLat: latitude,
+      newLon: longitude,
+      newTimestamp: timestamp,
+      minDistanceMeters: minDistanceMeters,
+      minIntervalMs: minIntervalMs,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DeliveryTrailPoint &&
+          runtimeType == other.runtimeType &&
+          latitude == other.latitude &&
+          longitude == other.longitude &&
+          timestamp == other.timestamp;
+
+  @override
+  int get hashCode => Object.hash(latitude, longitude, timestamp);
+
+  @override
+  String toString() =>
+      'DeliveryTrailPoint($latitude, $longitude, at: $timestamp)';
+}
+
 /// State representation of the delivery tracking service.
 @immutable
 class DeliveryTrackingState {
   final HealthcareDelivery? activeDelivery;
+  final List<DeliveryTrailPoint> trail;
+  final List<double> recentSpeeds;
   final bool isLoading;
   final String? errorMessage;
   final SocketConnectionStatus socketStatus;
@@ -384,6 +593,8 @@ class DeliveryTrackingState {
 
   const DeliveryTrackingState({
     this.activeDelivery,
+    this.trail = const [],
+    this.recentSpeeds = const [],
     this.isLoading = false,
     this.errorMessage,
     this.socketStatus = SocketConnectionStatus.disconnected,
@@ -396,9 +607,35 @@ class DeliveryTrackingState {
   bool get hasLiveDroneGps =>
       hasActiveDelivery && (activeDelivery!.telemetry?.isLive ?? false);
 
+  /// Traveled GPS coordinates formatted for Leaflet / flutter_map PolylineLayer.
+  List<LatLng> get trailPoints =>
+      trail.map((p) => LatLng(p.latitude, p.longitude)).toList();
+
+  /// Geodesic distance in meters between latest valid drone GPS and destination location.
+  /// Returns null if active delivery or drone GPS coordinates are missing/invalid.
+  double? get remainingDistanceMeters {
+    if (activeDelivery == null) return null;
+    final telem = activeDelivery!.telemetry;
+    if (telem == null || !telem.hasCoordinates) return null;
+    return GisUtils.haversineDistanceMeters(
+      telem.latitude,
+      telem.longitude,
+      activeDelivery!.destinationLocation.latitude,
+      activeDelivery!.destinationLocation.longitude,
+    );
+  }
+
+  /// Whether the drone is within arrival proximity threshold (default 25m).
+  bool get isWithinDeliveryProximity =>
+      GisUtils.isWithinProximity(remainingDistanceMeters);
+
   DeliveryTrackingState copyWith({
     HealthcareDelivery? activeDelivery,
     bool clearActiveDelivery = false,
+    List<DeliveryTrailPoint>? trail,
+    bool clearTrail = false,
+    List<double>? recentSpeeds,
+    bool clearRecentSpeeds = false,
     bool? isLoading,
     String? errorMessage,
     bool clearError = false,
@@ -409,6 +646,9 @@ class DeliveryTrackingState {
       activeDelivery: clearActiveDelivery
           ? null
           : (activeDelivery ?? this.activeDelivery),
+      trail: clearTrail ? const [] : (trail ?? this.trail),
+      recentSpeeds:
+          clearRecentSpeeds ? const [] : (recentSpeeds ?? this.recentSpeeds),
       isLoading: isLoading ?? this.isLoading,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       socketStatus: socketStatus ?? this.socketStatus,

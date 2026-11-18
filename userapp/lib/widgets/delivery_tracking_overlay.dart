@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/delivery_tracking_service.dart';
+import '../screens/delivery_tracking_screen.dart';
 import 'delivery_tracking_pill.dart';
 
 /// Inherited scope providing access to [HealthcareDeliveryTrackingService] across the widget tree.
@@ -68,7 +69,10 @@ class _DeliveryTrackingOverlayState extends State<DeliveryTrackingOverlay> {
     final auth = _authService ?? widget.authService ?? CitizenAuthService();
 
     return ListenableBuilder(
-      listenable: tracking,
+      listenable: Listenable.merge([
+        tracking,
+        DeliveryTrackingScreen.isTrackingScreenActive,
+      ]),
       builder: (context, _) {
         final state = tracking.state;
         final bool isAuth = auth.isAuthenticated;
@@ -77,6 +81,9 @@ class _DeliveryTrackingOverlayState extends State<DeliveryTrackingOverlay> {
           return widget.child;
         }
 
+        final bool isTrackingScreenOpen = DeliveryTrackingScreen.isTrackingScreenActive.value;
+        final bool isPillVisible = !_isModalOpen && !isTrackingScreenOpen;
+
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -84,9 +91,10 @@ class _DeliveryTrackingOverlayState extends State<DeliveryTrackingOverlay> {
             Positioned(
               left: 16,
               right: 16,
-              bottom: 92 + MediaQuery.paddingOf(context).bottom,
+              bottom: 20 + MediaQuery.paddingOf(context).bottom,
               child: Visibility(
-                visible: !_isModalOpen,
+                key: const ValueKey('deliveryTrackingOverlayVisibility'),
+                visible: isPillVisible,
                 maintainState: true,
                 child: SafeArea(
                   top: false,
